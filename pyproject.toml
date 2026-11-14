@@ -39,7 +39,7 @@ include = ["app*", "sample_data*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-asyncio_mode = "auto"
+addopts = "-p no:asyncio -p no:anyio"
 pythonpath = ["."]
 
 [tool.ruff]

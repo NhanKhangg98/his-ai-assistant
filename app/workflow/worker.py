@@ -50,7 +50,7 @@ class DurableAsyncioWorker:
         self.discord_adapter = discord_adapter or get_discord_adapter()
         self.jira_adapter = jira_adapter or get_jira_adapter()
         self.git_adapter = git_adapter or get_git_adapter()
-        self._stop_event = asyncio.Event()
+        self._stop_event: asyncio.Event | None = None
         self._bg_task: asyncio.Task[None] | None = None
 
     def recover_interrupted_tasks(self, force_reclaim_running: bool = True) -> int:
@@ -295,11 +295,14 @@ class DurableAsyncioWorker:
 
     async def run_forever(self) -> None:
         """Background loop polling for pending tasks until stop() is called."""
+        if self._stop_event is None:
+            self._stop_event = asyncio.Event()
         self.recover_interrupted_tasks(force_reclaim_running=True)
         while not self._stop_event.is_set():
             try:
-                processed = await asyncio.to_thread(self.process_next_task)
+                processed = self.process_next_task()
                 if processed is not None:
+                    await asyncio.sleep(0)
                     continue
             except Exception as exc:
                 logger.error("Worker poll loop error: %s", AllBoundaryDLP.sanitize_text(str(exc)))
@@ -313,13 +316,15 @@ class DurableAsyncioWorker:
 
     def start(self) -> None:
         """Start the background asyncio loop."""
-        self._stop_event.clear()
+        if self._stop_event is not None:
+            self._stop_event.clear()
         if self._bg_task is None or self._bg_task.done():
             self._bg_task = asyncio.create_task(self.run_forever())
 
     async def stop(self) -> None:
         """Signal the worker loop to stop and await completion."""
-        self._stop_event.set()
+        if self._stop_event is not None:
+            self._stop_event.set()
         if self._bg_task is not None:
             await self._bg_task
             self._bg_task = None

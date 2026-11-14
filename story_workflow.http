@@ -1,0 +1,305 @@
+### ============================================================================
+### HIS 315 AI ASSISTANT — END-TO-END 7-STEP WORKFLOW (.http SCRIPT)
+### Chạy trọn vẹn Story HIS-101 qua đủ 7 bước (BA -> QC -> Dev -> PR -> Bug Loop 6->3 -> UAT -> DONE)
+### ============================================================================
+
+@baseUrl = http://localhost:8000
+
+### 0. Kiểm tra trạng thái dịch vụ (Health Check)
+GET {{baseUrl}}/health
+Accept: application/json
+
+### 0.1 Tra cứu HIS-KB với quyền BA (Chỉ nhận doc + code_map, 0 source_code, kèm trích dẫn)
+POST {{baseUrl}}/search
+Content-Type: application/json
+
+{
+  "userId": "ba_user",
+  "role": "BA",
+  "query": "Quy định kiểm tra thông tuyến thẻ BHYT ngoại trú và điều kiện 5 năm liên tục",
+  "topK": 5,
+  "hisModule": "Registration"
+}
+
+### 0.2 Tra cứu HIS-KB với quyền Dev (Nhận đầy đủ doc + code_map + source_code)
+POST {{baseUrl}}/search
+Content-Type: application/json
+
+{
+  "userId": "dev_user",
+  "role": "Dev",
+  "query": "RegisterOutpatientBhytAsync FiveYearContinuousDate CopayRate",
+  "topK": 5
+}
+
+### ============================================================================
+### BƯỚC 1: PHÂN TÍCH YÊU CẦU (BA AGENT & CỬA DUYỆT BA)
+### ============================================================================
+
+### 1.1 BA kích hoạt BA Agent phân tích Story HIS-101 (202 Accepted)
+POST {{baseUrl}}/chat/commands
+Content-Type: application/json
+
+{
+  "messageId": "http-his101-step1-analyze-01",
+  "userId": "ba_user",
+  "channel": "his-sprint-315",
+  "text": "/ba analyze HIS-101"
+}
+
+### 1.2 [Kiểm thử âm tính 403] Dev cố tình duyệt thay BA ở Bước 1 -> Bị chặn 403 Forbidden
+POST {{baseUrl}}/chat/commands
+Content-Type: application/json
+
+{
+  "messageId": "http-his101-step1-wrong-role-02",
+  "userId": "dev_user",
+  "channel": "his-sprint-315",
+  "text": "/ba approve HIS-101"
+}
+
+### 1.3 BA duyệt kết quả phân tích Bước 1 -> Chuyển sang Bước 2 (200 OK)
+POST {{baseUrl}}/chat/commands
+Content-Type: application/json
+
+{
+  "messageId": "http-his101-step1-approve-03",
+  "userId": "ba_user",
+  "channel": "his-sprint-315",
+  "text": "/ba approve HIS-101"
+}
+
+### ============================================================================
+### BƯỚC 2: THIẾT KẾ TEST (QC AGENT & CỬA DUYỆT QC)
+### ============================================================================
+
+### 2.1 QC kích hoạt QC Agent sinh bộ test case từ AC (202 Accepted)
+POST {{baseUrl}}/chat/commands
+Content-Type: application/json
+
+{
+  "messageId": "http-his101-step2-design-04",
+  "userId": "qc_user",
+  "channel": "his-sprint-315",
+  "text": "/qc design-test HIS-101"
+}
+
+### 2.2 QC duyệt bộ test case Bước 2 -> Chuyển sang Bước 3 (200 OK)
+POST {{baseUrl}}/chat/commands
+Content-Type: application/json
+
+{
+  "messageId": "http-his101-step2-approve-05",
+  "userId": "qc_user",
+  "channel": "his-sprint-315",
+  "text": "/qc approve HIS-101"
+}
+
+### ============================================================================
+### BƯỚC 3: LẬP KẾ HOẠCH KỸ THUẬT (DEV AGENT & CỬA DUYỆT DEV)
+### ============================================================================
+
+### 3.1 Dev kích hoạt Dev Agent lập kế hoạch sửa file/API/DB (202 Accepted)
+POST {{baseUrl}}/chat/commands
+Content-Type: application/json
+
+{
+  "messageId": "http-his101-step3-plan-06",
+  "userId": "dev_user",
+  "channel": "his-sprint-315",
+  "text": "/dev plan HIS-101"
+}
+
+### 3.2 Dev duyệt kế hoạch Bước 3 -> Chuyển sang Bước 4 (200 OK)
+POST {{baseUrl}}/chat/commands
+Content-Type: application/json
+
+{
+  "messageId": "http-his101-step3-approve-07",
+  "userId": "dev_user",
+  "channel": "his-sprint-315",
+  "text": "/dev approve HIS-101"
+}
+
+### ============================================================================
+### BƯỚC 4: HIỆN THỰC CODE TRÊN NHÁNH bot/HIS-101 & MỞ PR VÀO develop
+### ============================================================================
+
+### 4.1 Dev kích hoạt Bot tạo nhánh bot/HIS-101, sinh code, chạy mock test & mở PR vào develop
+### (Khi Worker hoàn tất Bước 4 sẽ tự động chuyển Story sang Bước 5)
+POST {{baseUrl}}/chat/commands
+Content-Type: application/json
+
+{
+  "messageId": "http-his101-step4-implement-08",
+  "userId": "dev_user",
+  "channel": "his-sprint-315",
+  "text": "/dev implement HIS-101"
+}
+
+### ============================================================================
+### BƯỚC 5: REVIEW & MERGE PR (DEV SUMMARIZE PR & DEV XÁC NHẬN MERGE THỦ CÔNG)
+### ============================================================================
+
+### 5.1 Dev yêu cầu Bot tóm tắt thay đổi của PR và kết quả test (202 Accepted)
+POST {{baseUrl}}/chat/commands
+Content-Type: application/json
+
+{
+  "messageId": "http-his101-step5-summarize-09",
+  "userId": "dev_user",
+  "channel": "his-sprint-315",
+  "text": "/dev summarize-pr HIS-101"
+}
+
+### 5.2 Sau khi Dev review và merge PR thủ công, Dev xác nhận đã merge -> Sang Bước 6 (200 OK)
+POST {{baseUrl}}/chat/commands
+Content-Type: application/json
+
+{
+  "messageId": "http-his101-step5-confirm-merge-10",
+  "userId": "dev_user",
+  "channel": "his-sprint-315",
+  "text": "/dev confirm-merge HIS-101"
+}
+
+### ============================================================================
+### BƯỚC 6: KIỂM THỬ HỒI QUY & KỊCH BẢN QC BÁO LỖI QUAY VỀ BƯỚC 3 (LOOP 6 -> 3)
+### ============================================================================
+
+### 6.1 QC kích hoạt Bot sinh checklist regression từ các file đã sửa (202 Accepted)
+POST {{baseUrl}}/chat/commands
+Content-Type: application/json
+
+{
+  "messageId": "http-his101-step6-test-11",
+  "userId": "qc_user",
+  "channel": "his-sprint-315",
+  "text": "/qc test HIS-101"
+}
+
+### 6.2 QC phát hiện lỗi và gửi kèm log chứa PII bệnh nhân -> Bot che PII, tạo Bug Report & đưa Story về Bước 3
+POST {{baseUrl}}/chat/commands
+Content-Type: application/json
+
+{
+  "messageId": "http-his101-step6-bug-12",
+  "userId": "qc_user",
+  "channel": "his-sprint-315",
+  "text": "/qc bug HIS-101 | NullReferenceException khi kiểm tra FiveYearContinuousDate của bệnh nhân Nguyễn Văn An CCCD 079095001234 thẻ DN4797912345678"
+}
+
+### 6.3 (Vòng lặp tại Bước 3) Dev lập lại kế hoạch khắc phục Bug (202 Accepted)
+POST {{baseUrl}}/chat/commands
+Content-Type: application/json
+
+{
+  "messageId": "http-his101-step3-replan-13",
+  "userId": "dev_user",
+  "channel": "his-sprint-315",
+  "text": "/dev plan HIS-101"
+}
+
+### 6.4 Dev duyệt kế hoạch sửa lỗi -> Sang Bước 4 (200 OK)
+POST {{baseUrl}}/chat/commands
+Content-Type: application/json
+
+{
+  "messageId": "http-his101-step3-reapprove-14",
+  "userId": "dev_user",
+  "channel": "his-sprint-315",
+  "text": "/dev approve HIS-101"
+}
+
+### 6.5 (Vòng lặp tại Bước 4) Bot cập nhật lại nhánh bot/HIS-101 & PR hiện hữu (Idempotent) -> Tự sang Bước 5
+POST {{baseUrl}}/chat/commands
+Content-Type: application/json
+
+{
+  "messageId": "http-his101-step4-reimplement-15",
+  "userId": "dev_user",
+  "channel": "his-sprint-315",
+  "text": "/dev implement HIS-101"
+}
+
+### 6.6 (Vòng lặp tại Bước 5) Dev tóm tắt PR và xác nhận merge
+POST {{baseUrl}}/chat/commands
+Content-Type: application/json
+
+{
+  "messageId": "http-his101-step5-resummarize-16",
+  "userId": "dev_user",
+  "channel": "his-sprint-315",
+  "text": "/dev summarize-pr HIS-101"
+}
+
+### 6.7 Dev xác nhận merge -> Sang Bước 6
+POST {{baseUrl}}/chat/commands
+Content-Type: application/json
+
+{
+  "messageId": "http-his101-step5-reconfirm-merge-17",
+  "userId": "dev_user",
+  "channel": "his-sprint-315",
+  "text": "/dev confirm-merge HIS-101"
+}
+
+### 6.8 (Vòng lặp tại Bước 6) QC chạy lại kiểm thử và xác nhận đạt (/qc pass) -> Sang Bước 7
+POST {{baseUrl}}/chat/commands
+Content-Type: application/json
+
+{
+  "messageId": "http-his101-step6-retest-18",
+  "userId": "qc_user",
+  "channel": "his-sprint-315",
+  "text": "/qc test HIS-101"
+}
+
+### 6.9 QC xác nhận PASS Bước 6 -> Chuyển sang Bước 7 (UAT)
+POST {{baseUrl}}/chat/commands
+Content-Type: application/json
+
+{
+  "messageId": "http-his101-step6-pass-19",
+  "userId": "qc_user",
+  "channel": "his-sprint-315",
+  "text": "/qc pass HIS-101"
+}
+
+### ============================================================================
+### BƯỚC 7: NGHIỆM THU UAT & ĐÓNG STORY (BA AGENT & CỬA DUYỆT BA)
+### ============================================================================
+
+### 7.1 BA kích hoạt Bot đối chiếu kết quả thực hiện với AC ban đầu (202 Accepted)
+POST {{baseUrl}}/chat/commands
+Content-Type: application/json
+
+{
+  "messageId": "http-his101-step7-uat-20",
+  "userId": "ba_user",
+  "channel": "his-sprint-315",
+  "text": "/ba uat HIS-101"
+}
+
+### 7.2 BA xác nhận nghiệm thu và đóng Story (/ba close) -> Trạng thái DONE (200 OK)
+POST {{baseUrl}}/chat/commands
+Content-Type: application/json
+
+{
+  "messageId": "http-his101-step7-close-21",
+  "userId": "ba_user",
+  "channel": "his-sprint-315",
+  "text": "/ba close HIS-101"
+}
+
+### ============================================================================
+### KIỂM TRA TRẠNG THÁI STORY CUỐI CÙNG VÀ LỊCH SỬ AUDIT LOG
+### ============================================================================
+
+### 8.1 Xem trạng thái Story HIS-101 (currentStep=7, stepStatus=DONE, loopCount=1)
+GET {{baseUrl}}/stories/HIS-101
+Accept: application/json
+
+### 8.2 Xem toàn bộ Audit Log của Story HIS-101
+GET {{baseUrl}}/audit-logs?story_key=HIS-101
+Accept: application/json

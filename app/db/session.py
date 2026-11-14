@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Generator
+from collections.abc import AsyncGenerator, Generator
 from contextlib import contextmanager
 
 from sqlalchemy import Engine, create_engine, select, text
@@ -83,8 +83,8 @@ def session_scope(database_url: str | None = None) -> Generator[Session, None, N
         session.close()
 
 
-def get_db_session() -> Generator[Session, None, None]:
-    """FastAPI dependency yielding a database session."""
+async def get_db_session() -> AsyncGenerator[Session, None]:
+    """FastAPI async dependency yielding a database session without threadpool overhead."""
     factory = get_session_factory()
     session = factory()
     try:
