@@ -1,0 +1,43 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: his-ai-db
+    environment:
+      POSTGRES_USER: his_user
+      POSTGRES_PASSWORD: his_pass
+      POSTGRES_DB: his_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U his_user -d his_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: his-ai-app
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://his_user:his_pass@db:5432/his_db
+      HIS_REPO_PATH: ./sample_data/his_staging
+      HIS_STAGING_BRANCH: staging
+      LLM_PRIMARY_PROVIDER: primary-mock
+      LLM_FALLBACK_PROVIDER: fallback-mock
+      LLM_SIMULATE_PRIMARY_FAILURE: "false"
+      MONTHLY_USER_TOKEN_QUOTA: "50000"
+      MONTHLY_USER_COST_USD_QUOTA: "5.00"
+      MONTHLY_ROLE_TOKEN_QUOTA: "150000"
+      MONTHLY_ROLE_COST_USD_QUOTA: "15.00"
+      ENABLE_BACKGROUND_WORKER: "true"
+    ports:
+      - "8000:8000"
+
+volumes:
+  pgdata:

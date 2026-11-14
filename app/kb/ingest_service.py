@@ -89,9 +89,7 @@ class IncrementalIngestService:
     def __init__(self, session: Session) -> None:
         self.session = session
 
-    def ingest_repository(
-        self, repo_path: str | Path, branch: str = "staging"
-    ) -> IngestSummary:
+    def ingest_repository(self, repo_path: str | Path, branch: str = "staging") -> IngestSummary:
         repo_dir = Path(repo_path).resolve()
         commit_sha = resolve_git_branch_commit_sha(repo_dir, branch=branch)
 
@@ -115,10 +113,7 @@ class IncrementalIngestService:
             if p.suffix.lower() in SUPPORTED_EXTENSIONS:
                 disk_files[rel] = p
 
-        existing_files = {
-            f.file_path: f
-            for f in self.session.scalars(select(KbFile)).all()
-        }
+        existing_files = {f.file_path: f for f in self.session.scalars(select(KbFile)).all()}
 
         added_count = 0
         modified_count = 0
@@ -176,9 +171,7 @@ class IncrementalIngestService:
                 kb_file.last_commit_sha = commit_sha
                 kb_file.updated_at = utc_now()
                 self.session.execute(delete(KbChunk).where(KbChunk.file_id == kb_file.id))
-                self.session.execute(
-                    delete(CodeMapEntry).where(CodeMapEntry.file_id == kb_file.id)
-                )
+                self.session.execute(delete(CodeMapEntry).where(CodeMapEntry.file_id == kb_file.id))
                 self.session.flush()
 
             if source_kind == "doc":
@@ -311,7 +304,7 @@ class IncrementalIngestService:
 
         clean_heading = AllBoundaryDLP.sanitize_text(draft.heading_or_symbol)
         clean_meta = AllBoundaryDLP.sanitize_obj(draft.metadata)
-        combined_for_index = f"{clean_heading} { draft.his_module } {clean_text}"
+        combined_for_index = f"{clean_heading} {draft.his_module} {clean_text}"
         lex_tokens = build_lexical_token_string(combined_for_index)
         embedding_vec = DeterministicEmbedding.encode(combined_for_index)
 
@@ -338,9 +331,7 @@ class IncrementalIngestService:
             select(IngestionRun).order_by(IngestionRun.started_at.desc()).limit(1)
         )
         total_files = self.session.scalar(select(func.count()).select_from(KbFile)) or 0
-        total_code_maps = (
-            self.session.scalar(select(func.count()).select_from(CodeMapEntry)) or 0
-        )
+        total_code_maps = self.session.scalar(select(func.count()).select_from(CodeMapEntry)) or 0
 
         rows = self.session.execute(
             select(KbChunk.chunk_type, func.count()).group_by(KbChunk.chunk_type)

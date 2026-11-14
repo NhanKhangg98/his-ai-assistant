@@ -230,9 +230,7 @@ class WorkflowStory(Base):
     story_key: Mapped[str] = mapped_column(String(32), primary_key=True)
     title: Mapped[str] = mapped_column(String(256), nullable=False)
     current_step: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
-    step_status: Mapped[str] = mapped_column(
-        String(32), default="WAITING_AGENT", nullable=False
-    )
+    step_status: Mapped[str] = mapped_column(String(32), default="WAITING_AGENT", nullable=False)
     git_branch: Mapped[str | None] = mapped_column(String(128), nullable=True)
     pr_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     pr_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
@@ -281,9 +279,7 @@ class BackgroundTask(Base):
     story_key: Mapped[str] = mapped_column(
         String(32), ForeignKey("workflow_stories.story_key", ondelete="CASCADE"), nullable=False
     )
-    user_id: Mapped[str] = mapped_column(
-        String(64), ForeignKey("users.user_id"), nullable=False
-    )
+    user_id: Mapped[str] = mapped_column(String(64), ForeignKey("users.user_id"), nullable=False)
     channel: Mapped[str] = mapped_column(String(64), nullable=False)
     target_step: Mapped[int] = mapped_column(Integer, nullable=False)
     action_name: Mapped[str] = mapped_column(String(32), nullable=False)
@@ -341,9 +337,7 @@ class LlmUsageLedger(Base):
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid_str)
-    user_id: Mapped[str] = mapped_column(
-        String(64), ForeignKey("users.user_id"), nullable=False
-    )
+    user_id: Mapped[str] = mapped_column(String(64), ForeignKey("users.user_id"), nullable=False)
     user_role: Mapped[str] = mapped_column(String(16), nullable=False)
     story_key: Mapped[str | None] = mapped_column(String(32), nullable=True)
     usage_month: Mapped[str] = mapped_column(String(7), nullable=False)

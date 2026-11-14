@@ -274,11 +274,7 @@ def _write_source_code(repo_dir: Path) -> None:
     reg_ctrl_path.write_text("\n".join(reg_ctrl_lines), encoding="utf-8")
 
     entities_path = (
-        repo_dir
-        / "src"
-        / "HIS.Registration.Api"
-        / "Entities"
-        / "OutpatientRegistrationEntities.cs"
+        repo_dir / "src" / "HIS.Registration.Api" / "Entities" / "OutpatientRegistrationEntities.cs"
     )
     entities_path.parent.mkdir(parents=True, exist_ok=True)
     entities_code = """using System;
@@ -310,11 +306,7 @@ namespace HIS.Registration.Api.Entities
     entities_path.write_text(entities_code, encoding="utf-8")
 
     pharm_ctrl_path = (
-        repo_dir
-        / "src"
-        / "HIS.Pharmacy.Api"
-        / "Controllers"
-        / "PrescriptionDispenseController.cs"
+        repo_dir / "src" / "HIS.Pharmacy.Api" / "Controllers" / "PrescriptionDispenseController.cs"
     )
     pharm_ctrl_path.parent.mkdir(parents=True, exist_ok=True)
     pharm_ctrl_code = """using System;
@@ -347,11 +339,7 @@ namespace HIS.Pharmacy.Api.Controllers
     pharm_ctrl_path.write_text(pharm_ctrl_code, encoding="utf-8")
 
     billing_ctrl_path = (
-        repo_dir
-        / "src"
-        / "HIS.Billing.Api"
-        / "Controllers"
-        / "BhytSettlementController.cs"
+        repo_dir / "src" / "HIS.Billing.Api" / "Controllers" / "BhytSettlementController.cs"
     )
     billing_ctrl_path.parent.mkdir(parents=True, exist_ok=True)
     billing_ctrl_code = """using System;

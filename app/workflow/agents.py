@@ -58,9 +58,7 @@ class WorkflowAgents:
             return self._step7_ba_uat(story_key, user_id, user_role, artifacts)
         raise ValueError(f"Unsupported async agent action: {action!r}")
 
-    def _step1_ba_analyze(
-        self, story_key: str, user_id: str, user_role: str
-    ) -> dict[str, Any]:
+    def _step1_ba_analyze(self, story_key: str, user_id: str, user_role: str) -> dict[str, Any]:
         issue = self.jira_adapter.get_issue(story_key)
         kb_hits = self.search_service.search(
             query=f"{issue.summary} {issue.description}",
@@ -168,10 +166,7 @@ class WorkflowAgents:
             top_k=5,
         )
         bug_context = artifacts.get("step_6_bug_report", {})
-        prompt = (
-            f"[Step 3 Dev Plan] Story={story_key}: {issue.summary} "
-            f"BugContext={bug_context}"
-        )
+        prompt = f"[Step 3 Dev Plan] Story={story_key}: {issue.summary} BugContext={bug_context}"
         llm_res = self.llm_router.generate_with_governance(
             user_id=user_id,
             user_role=user_role,

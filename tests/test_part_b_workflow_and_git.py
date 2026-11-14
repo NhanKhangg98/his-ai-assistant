@@ -354,9 +354,7 @@ def test_full_7_step_story_workflow_with_step3_reject_and_step6_bug_loop(
     assert audit_resp["totalLogs"] >= 15
 
 
-def test_rbac_role_gate_and_step_jumping_and_idempotency(
-    client: Any, db_session: Session
-) -> None:
+def test_rbac_role_gate_and_step_jumping_and_idempotency(client: Any, db_session: Session) -> None:
     """Verify 403 on wrong role, 409 on step jumping, 202 replay, and 422 on mutated payload."""
     # 1. Wrong Role: Dev trying to run Step 1 BA command -> 403 Forbidden
     r_wrong_role = client.post(

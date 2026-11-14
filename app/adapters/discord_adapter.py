@@ -21,9 +21,7 @@ class MockDiscordAdapter(DiscordAdapterProtocol):
         step: int | None = None,
     ) -> DiscordNotification:
         clean_mentions = [AllBoundaryDLP.sanitize_text(m) for m in (mentions or [])]
-        mention_prefix = " ".join(
-            m if m.startswith("@") else f"@{m}" for m in clean_mentions
-        )
+        mention_prefix = " ".join(m if m.startswith("@") else f"@{m}" for m in clean_mentions)
         full_text = f"{mention_prefix} {content}".strip() if mention_prefix else content
         sanitized_content = AllBoundaryDLP.sanitize_text(full_text)
 

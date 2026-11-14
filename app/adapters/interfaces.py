@@ -26,8 +26,7 @@ class LLMProviderProtocol(Protocol):
 
     provider_name: str
 
-    def generate(self, prompt: str, context: dict[str, Any] | None = None) -> LLMResponse:
-        ...
+    def generate(self, prompt: str, context: dict[str, Any] | None = None) -> LLMResponse: ...
 
 
 @dataclass(slots=True)
@@ -46,11 +45,9 @@ class JiraIssue:
 class JiraAdapterProtocol(Protocol):
     """Interface for Jira issue retrieval and status updates."""
 
-    def get_issue(self, story_key: str) -> JiraIssue:
-        ...
+    def get_issue(self, story_key: str) -> JiraIssue: ...
 
-    def update_issue_status(self, story_key: str, new_status: str) -> None:
-        ...
+    def update_issue_status(self, story_key: str, new_status: str) -> None: ...
 
 
 @dataclass(slots=True)
@@ -70,16 +67,11 @@ class PullRequestInfo:
 class GitAdapterProtocol(Protocol):
     """Interface for bot Git operations. Explicitly omits any merge() method by design."""
 
-    def ensure_bot_branch(self, branch: str, from_ref: str = "develop") -> str:
-        ...
+    def ensure_bot_branch(self, branch: str, from_ref: str = "develop") -> str: ...
 
-    def commit_files(
-        self, branch: str, files: dict[str, str], commit_message: str
-    ) -> str:
-        ...
+    def commit_files(self, branch: str, files: dict[str, str], commit_message: str) -> str: ...
 
-    def push_branch(self, branch: str) -> str:
-        ...
+    def push_branch(self, branch: str) -> str: ...
 
     def create_or_update_pull_request(
         self,
@@ -87,8 +79,7 @@ class GitAdapterProtocol(Protocol):
         base_branch: str,
         title: str,
         body: str,
-    ) -> PullRequestInfo:
-        ...
+    ) -> PullRequestInfo: ...
 
 
 @dataclass(slots=True)
@@ -113,5 +104,4 @@ class DiscordAdapterProtocol(Protocol):
         mentions: list[str] | None = None,
         story_key: str | None = None,
         step: int | None = None,
-    ) -> DiscordNotification:
-        ...
+    ) -> DiscordNotification: ...

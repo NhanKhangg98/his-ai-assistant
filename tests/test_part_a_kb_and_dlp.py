@@ -72,7 +72,7 @@ def test_doc_and_code_chunkers_preserve_methods_and_skip_ignored_dirs() -> None:
         for c in chunks
         if c.heading_or_symbol == "PatientRegistrationController.RegisterOutpatientBhytAsync"
     )
-    assert "[HttpPost(\"outpatient-bhyt\")]" in reg_chunk.content
+    assert '[HttpPost("outpatient-bhyt")]' in reg_chunk.content
     assert "FiveYearApplied = qualifiesFiveYear" in reg_chunk.content
 
     # Verify Code Map extracted exact route and HTTP verb without leaking method body
@@ -152,9 +152,7 @@ def test_incremental_ingestion_and_staging_commit_sha(db_session: Session) -> No
     assert run5.files_skipped == 9
 
 
-def test_rbac_search_pre_filtering_and_citations(
-    client: Any, db_session: Session
-) -> None:
+def test_rbac_search_pre_filtering_and_citations(client: Any, db_session: Session) -> None:
     """Verify BA and QC only receive doc + code_map (0 source_code), while Dev sees source_code."""
     ingest_svc = IncrementalIngestService(db_session)
     ingest_svc.ingest_repository("./sample_data/his_staging", branch="staging")

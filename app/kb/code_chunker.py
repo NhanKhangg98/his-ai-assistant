@@ -26,9 +26,7 @@ CS_PROP_RE = re.compile(
     r"^\s*public\s+(?P<type>[\w<>?.\[\]]+)\s+(?P<prop>[A-Za-z_]\w*)\s*\{\s*get;"
 )
 
-TS_FUNC_COMP_RE = re.compile(
-    r"^\s*export\s+(?:async\s+)?function\s+(?P<name>[A-Za-z_]\w*)\s*\("
-)
+TS_FUNC_COMP_RE = re.compile(r"^\s*export\s+(?:async\s+)?function\s+(?P<name>[A-Za-z_]\w*)\s*\(")
 TS_INTERFACE_RE = re.compile(r"^\s*export\s+interface\s+(?P<name>[A-Za-z_]\w*)\b")
 
 MAX_METHOD_CHARS = 4000
@@ -341,9 +339,7 @@ class CodeChunker:
                 )
 
                 if http_verb:
-                    full_route = "/" + "/".join(
-                        p for p in (class_route_prefix, sub_route) if p
-                    )
+                    full_route = "/" + "/".join(p for p in (class_route_prefix, sub_route) if p)
                     summary = (
                         f"[API Endpoint] {http_verb} {full_route} -> "
                         f"{current_class}.{method_name} (Module: {his_module}, File: {rel_path})"
@@ -473,9 +469,7 @@ class CodeChunker:
                 )
                 entry_type = "entity" if is_interface else "component"
                 label = "TS Interface" if is_interface else "React/TS Function"
-                summary = (
-                    f"[{label}] {symbol_name} in {rel_path} (Module: {his_module})"
-                )
+                summary = f"[{label}] {symbol_name} in {rel_path} (Module: {his_module})"
                 code_maps.append(
                     CodeMapDraft(
                         entry_type=entry_type,

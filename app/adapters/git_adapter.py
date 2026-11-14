@@ -54,9 +54,7 @@ def _validate_bot_write_branch(branch: str) -> str:
         )
     key_part = match.group("key").lower()
     if key_part in PROTECTED_BRANCHES:
-        raise ProtectedBranchError(
-            f"Branch key cannot shadow protected branch name: {branch!r}"
-        )
+        raise ProtectedBranchError(f"Branch key cannot shadow protected branch name: {branch!r}")
     return cleaned
 
 
@@ -100,9 +98,7 @@ class LocalRepoGitAdapter(GitAdapterProtocol):
 
         return self.get_branch_commit_sha(valid_branch)
 
-    def commit_files(
-        self, branch: str, files: dict[str, str], commit_message: str
-    ) -> str:
+    def commit_files(self, branch: str, files: dict[str, str], commit_message: str) -> str:
         """Write DLP-sanitized files onto 'bot/<key>' and commit."""
         valid_branch = _validate_bot_write_branch(branch)
         self.ensure_bot_branch(valid_branch, from_ref="develop")
