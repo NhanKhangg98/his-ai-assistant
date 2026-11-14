@@ -1,0 +1,25 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# Testing & Linting caches
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Databases & local env
+*.db
+*.sqlite
+*.sqlite3
+.env
+
+# Nested HIS Staging Sample Git Repo (Prevent broken gitlink submodule mode 160000)
+sample_data/his_staging/.git/
+sample_data/his_staging/
