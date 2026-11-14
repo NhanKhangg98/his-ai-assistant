@@ -96,13 +96,45 @@ class DirectFastAPIClient:
                 return self._make_response(exc.status_code, {"detail": exc.detail})
 
 
+def _cleanup_sample_repo_bot_branches(repo_dir: Path) -> None:
+    """Remove any leftover bot/* branches and mock PR state so his_staging stays pristine."""
+    import subprocess
+
+    git_dir = repo_dir / ".git"
+    if not git_dir.exists():
+        return
+    subprocess.run(
+        ["git", "checkout", "staging"], cwd=str(repo_dir), check=False, capture_output=True
+    )
+    proc = subprocess.run(
+        ["git", "for-each-ref", "--format=%(refname:short)", "refs/heads/bot/"],
+        cwd=str(repo_dir),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    for br in proc.stdout.splitlines():
+        br_name = br.strip()
+        if br_name:
+            subprocess.run(
+                ["git", "branch", "-D", br_name],
+                cwd=str(repo_dir),
+                check=False,
+                capture_output=True,
+            )
+    pr_file = git_dir / "mock_pull_requests.json"
+    if pr_file.exists():
+        pr_file.unlink()
+
+
 @pytest.fixture()
-def test_db_url(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
-    """Configure an isolated database per test and disable background loop."""
+def test_db_url(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Generator[str, None, None]:
+    """Configure an isolated database per test and clean up sample repo branches on teardown."""
     db_file = tmp_path / "his_test.db"
     db_url = os.environ.get("TEST_POSTGRES_URL", f"sqlite:///{db_file.as_posix()}")
     repo_dir = Path("./sample_data/his_staging").resolve()
     ensure_sample_git_repo(repo_dir)
+    _cleanup_sample_repo_bot_branches(repo_dir)
 
     monkeypatch.setenv("DATABASE_URL", db_url)
     monkeypatch.setenv("HIS_REPO_PATH", str(repo_dir))
@@ -118,7 +150,10 @@ def test_db_url(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
     worker = get_worker()
     worker.database_url = db_url
     worker.git_adapter = LocalRepoGitAdapter(repo_dir)
-    return db_url
+    try:
+        yield db_url
+    finally:
+        _cleanup_sample_repo_bot_branches(repo_dir)
 
 
 @pytest.fixture()

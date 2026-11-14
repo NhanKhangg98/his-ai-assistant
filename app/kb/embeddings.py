@@ -114,6 +114,66 @@ def strip_vietnamese_accents(text: str) -> str:
     return "".join(ch for ch in normalized if unicodedata.category(ch) != "Mn")
 
 
+VN_EN_STOPWORDS: frozenset[str] = frozenset(
+    {
+        "la",
+        "là",
+        "gi",
+        "gì",
+        "khi",
+        "cua",
+        "của",
+        "va",
+        "và",
+        "cho",
+        "trong",
+        "bao",
+        "nhieu",
+        "nhiêu",
+        "the",
+        "thế",
+        "nao",
+        "nào",
+        "ra",
+        "sao",
+        "tai",
+        "tại",
+        "voi",
+        "với",
+        "cac",
+        "các",
+        "nhung",
+        "những",
+        "mot",
+        "một",
+        "duoc",
+        "được",
+        "co",
+        "có",
+        "de",
+        "để",
+        "thi",
+        "thì",
+        "ma",
+        "mà",
+        "tu",
+        "từ",
+        "ve",
+        "về",
+        "gom",
+        "gồm",
+        "nam",
+        "nằm",
+        "dung",
+        "dùng",
+        "tren",
+        "trên",
+        "duoi",
+        "dưới",
+    }
+)
+
+
 def extract_normalized_tokens(text: str) -> list[str]:
     """Extract lowercase tokens with CamelCase splitting, Vietnamese normalization, and synonyms."""
     if not text:
@@ -122,10 +182,12 @@ def extract_normalized_tokens(text: str) -> list[str]:
     tokens: list[str] = []
     for word in raw_words:
         lower_w = word.lower().strip("_-/")
-        if not lower_w:
+        if not lower_w or lower_w in VN_EN_STOPWORDS:
+            continue
+        unaccented = strip_vietnamese_accents(lower_w)
+        if unaccented in VN_EN_STOPWORDS:
             continue
         tokens.append(lower_w)
-        unaccented = strip_vietnamese_accents(lower_w)
         if unaccented != lower_w:
             tokens.append(unaccented)
 
@@ -135,15 +197,14 @@ def extract_normalized_tokens(text: str) -> list[str]:
             camel_pieces = CAMEL_SPLIT_RE.split(part)
             for piece in camel_pieces:
                 p_low = strip_vietnamese_accents(piece.lower())
-                if len(p_low) >= 2:
+                if len(p_low) >= 2 and p_low not in VN_EN_STOPWORDS:
                     tokens.append(p_low)
 
     unaccented_full = strip_vietnamese_accents(text.lower())
     for trigger_phrases, expansion_tokens in BILINGUAL_PHRASE_SYNONYMS:
         if any(tp in unaccented_full for tp in trigger_phrases):
             for exp_tok in expansion_tokens:
-                if exp_tok not in tokens:
-                    tokens.append(exp_tok)
+                tokens.append(exp_tok)
 
     return tokens
 

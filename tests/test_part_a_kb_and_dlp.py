@@ -415,3 +415,120 @@ def test_alembic_online_and_offline_migrations(tmp_path: Path) -> None:
     assert proc.returncode == 0, f"alembic --sql failed: {proc.stderr}"
     assert "CREATE TABLE" in proc.stdout
     assert "INSERT INTO users" in proc.stdout
+
+
+def test_independent_natural_vietnamese_queries_strict_recall_at_5(
+    db_session: Session, tmp_path: Path
+) -> None:
+    """Verify strict Recall@5 >= 0.80 on independent natural Vietnamese queries."""
+    import json
+
+    IncrementalIngestService(db_session).ingest_repository(
+        "./sample_data/his_staging", branch="staging"
+    )
+    reg_ctrl = "src/HIS.Registration.Api/Controllers/PatientRegistrationController.cs"
+    reg_ent = "src/HIS.Registration.Api/Entities/OutpatientRegistrationEntities.cs"
+    natural_questions = [
+        {
+            "question_id": "NQ01",
+            "role": "BA",
+            "query": (
+                "Điều kiện để bệnh nhân khám bảo hiểm y tế được miễn đồng chi trả "
+                "khi đủ 5 năm liên tục?"
+            ),
+            "expected_file": "docs/quy_trinh_tiep_nhan_bhyt.md",
+            "expected_keyword": "5 năm liên tục",
+        },
+        {
+            "question_id": "NQ02",
+            "role": "BA",
+            "query": (
+                "Mức hưởng bảo hiểm y tế ngoại trú của mã quyền lợi số 4 là bao nhiêu phần trăm?"
+            ),
+            "expected_file": "docs/quy_trinh_tiep_nhan_bhyt.md",
+            "expected_keyword": "80%",
+        },
+        {
+            "question_id": "NQ03",
+            "role": "QC",
+            "query": (
+                "Khi bác sĩ kê đơn thuốc có cặp hoạt chất tương tác chống chỉ định "
+                "thì hệ thống xử lý thế nào?"
+            ),
+            "expected_file": "docs/quy_dinh_ke_don_va_cap_phat_thuoc.docx",
+            "expected_keyword": "tương tác",
+        },
+        {
+            "question_id": "NQ04",
+            "role": "QC",
+            "query": "Nguyên tắc trừ tồn kho theo lô và hạn sử dụng khi cấp phát thuốc ngoại trú?",
+            "expected_file": "docs/quy_dinh_ke_don_va_cap_phat_thuoc.docx",
+            "expected_keyword": "FIFO",
+        },
+        {
+            "question_id": "NQ05",
+            "role": "BA",
+            "query": (
+                "Chi phí một lần khám ngoại trú thấp hơn 15% lương cơ sở "
+                "thì tính đồng chi trả ra sao?"
+            ),
+            "expected_file": "docs/bang_gia_vien_phi_va_thanh_toan_bhyt.pdf",
+            "expected_keyword": "351,000",
+        },
+        {
+            "question_id": "NQ06",
+            "role": "BA",
+            "query": (
+                "Mức lương cơ sở và trần đồng chi trả 6 tháng trong bảng tham số quỹ BHYT "
+                "là bao nhiêu?"
+            ),
+            "expected_file": "docs/bang_gia_vien_phi_va_thanh_toan_bhyt.pdf",
+            "expected_keyword": "2,340,000",
+        },
+        {
+            "question_id": "NQ07",
+            "role": "BA",
+            "query": "Đường dẫn API dùng để đăng ký khám bảo hiểm y tế ngoại trú là gì?",
+            "expected_file": reg_ctrl,
+            "expected_keyword": "/api/v1/registration/outpatient-bhyt",
+        },
+        {
+            "question_id": "NQ08",
+            "role": "Dev",
+            "query": (
+                "Hàm xử lý logic kiểm tra 5 năm liên tục khi tiếp nhận bệnh nhân ngoại trú "
+                "ở tầng backend?"
+            ),
+            "expected_file": reg_ctrl,
+            "expected_keyword": "qualifiesFiveYear",
+        },
+        {
+            "question_id": "NQ09",
+            "role": "Dev",
+            "query": (
+                "Lớp dữ liệu lưu thông tin lượt khám ngoại trú của bệnh nhân "
+                "gồm những thuộc tính nào?"
+            ),
+            "expected_file": reg_ent,
+            "expected_keyword": "OutpatientVisit",
+        },
+        {
+            "question_id": "NQ10",
+            "role": "Dev",
+            "query": (
+                "Biểu thức chính quy kiểm tra định dạng mã thẻ bảo hiểm y tế trên giao diện React?"
+            ),
+            "expected_file": "frontend/src/components/BhytRegistrationForm.tsx",
+            "expected_keyword": "validateBhytCardFormat",
+        },
+    ]
+    nq_file = tmp_path / "natural_eval.json"
+    nq_file.write_text(
+        json.dumps(natural_questions, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+    report = EvalService(db_session).evaluate(nq_file, k=5)
+    assert report["recall_at_5"] >= 0.80, (
+        f"Natural query Recall@5={report['recall_at_5']}: {report['details']}"
+    )
+    assert report["passed"] is True

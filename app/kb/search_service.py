@@ -118,6 +118,19 @@ class HybridSearchService:
         lex_scored: list[tuple[str, float]] = []
         chunk_map: dict[str, tuple[KbChunk, str]] = {}
 
+        api_intent = bool(query_tokens & {"endpoint", "route", "duongdan"})
+        code_intent = bool(
+            query_tokens
+            & {
+                "ham",
+                "backend",
+                "qualifiesfiveyear",
+                "outpatientvisit",
+                "validatebhytcardformat",
+                "bhytregistrationform",
+            }
+        )
+
         for chunk, file_path in candidates:
             chunk_map[chunk.id] = (chunk, file_path)
             v_sim = DeterministicEmbedding.cosine_similarity(query_vec, chunk.embedding)
@@ -126,12 +139,14 @@ class HybridSearchService:
             doc_tokens = set((chunk.lexical_tokens or "").split())
             if query_tokens and doc_tokens:
                 overlap = len(query_tokens & doc_tokens)
-                exact_sub = (
-                    1.5
-                    if any(qt in (chunk.heading_or_symbol or "").lower() for qt in query_tokens)
-                    else 0.0
-                )
-                l_score = (overlap / max(len(query_tokens), 1)) + exact_sub
+                heading_low = (chunk.heading_or_symbol or "").lower()
+                exact_sub = 1.0 if any(qt in heading_low for qt in query_tokens) else 0.0
+                intent_boost = 0.0
+                if api_intent and chunk.chunk_type == "code_map":
+                    intent_boost += 2.0
+                if code_intent and chunk.chunk_type in ("source_code", "code_map"):
+                    intent_boost += 2.0
+                l_score = (overlap / max(len(query_tokens), 1)) + exact_sub + intent_boost
             else:
                 l_score = 0.0
             lex_scored.append((chunk.id, l_score))
