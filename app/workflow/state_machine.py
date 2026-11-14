@@ -171,8 +171,10 @@ class WorkflowStateMachine:
         text: str,
     ) -> tuple[int, dict[str, Any]]:
         """Process a chat command idempotently, returning (http_status_code, response_dict)."""
-        clean_text = AllBoundaryDLP.sanitize_text(text.strip())
-        payload_hash = compute_request_payload_sha256(user_id, channel, clean_text)
+        raw_stripped = text.strip()
+        # Hash canonical raw payload so mutated PII/secrets with same messageId trigger 422
+        payload_hash = compute_request_payload_sha256(user_id, channel, raw_stripped)
+        clean_text = AllBoundaryDLP.sanitize_text(raw_stripped)
 
         # 1. Check Stripe-style idempotency table (processed_messages)
         existing_msg = self.session.scalar(
@@ -186,7 +188,8 @@ class WorkflowStateMachine:
             return existing_msg.status_code, replay_payload
 
         user = self._resolve_user(user_id)
-        parsed: ParsedCommand = parse_chat_command(clean_text)
+        parsed: ParsedCommand = parse_chat_command(raw_stripped)
+        clean_text = parsed.sanitized_text
         story = self._get_or_create_story_locked(parsed.story_key)
 
         # 2. Enforce RBAC Role Gate (403 Forbidden)

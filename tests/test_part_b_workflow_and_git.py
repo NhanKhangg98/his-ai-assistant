@@ -604,3 +604,105 @@ def test_llm_router_failover_and_monthly_token_and_cost_quotas(
     # Audit log must record QUOTA_BLOCKED
     logs = client.get("/audit-logs?story_key=HIS-101").json()["logs"]
     assert any(lg["outcomeStatus"] == "QUOTA_BLOCKED" for lg in logs)
+
+    # 3. Verify Monthly User Cost USD Quota and Monthly Role Cost USD Quota ceilings
+    from app.adapters.llm_router import QuotaExceededError
+
+    tight_user_cost_router = LLMRouter(
+        session=db_session,
+        settings=Settings(
+            MONTHLY_USER_TOKEN_QUOTA=999_999,
+            MONTHLY_USER_COST_USD_QUOTA=0.000001,
+            MONTHLY_ROLE_TOKEN_QUOTA=999_999,
+            MONTHLY_ROLE_COST_USD_QUOTA=100.0,
+        ),
+    )
+    with pytest.raises(QuotaExceededError, match="Monthly USD cost quota exceeded for user"):
+        tight_user_cost_router.generate_with_governance(
+            user_id="ba_user",
+            user_role="BA",
+            story_key="HIS-101",
+            prompt="Check user cost quota",
+        )
+
+    tight_role_cost_router = LLMRouter(
+        session=db_session,
+        settings=Settings(
+            MONTHLY_USER_TOKEN_QUOTA=999_999,
+            MONTHLY_USER_COST_USD_QUOTA=100.0,
+            MONTHLY_ROLE_TOKEN_QUOTA=999_999,
+            MONTHLY_ROLE_COST_USD_QUOTA=0.000001,
+        ),
+    )
+    with pytest.raises(QuotaExceededError, match="Monthly USD cost quota exceeded for role"):
+        tight_role_cost_router.generate_with_governance(
+            user_id="ba_user",
+            user_role="BA",
+            story_key="HIS-101",
+            prompt="Check role cost quota",
+        )
+
+
+def test_idempotency_mutated_pii_payload_422_and_pr_persistence_across_restart(
+    client: Any, db_session: Session, tmp_path: Any
+) -> None:
+    """Verify mutated PII payloads with same messageId return 422 and PR state survives restart."""
+    from app.adapters.git_adapter import LocalRepoGitAdapter
+    from app.workflow.command_parser import parse_chat_command
+
+    # 1. Story keys like BA-1001 or BN-2025 must not be corrupted by DLP before command parsing
+    parsed_ba = parse_chat_command("/ba analyze BA-1001")
+    assert parsed_ba.story_key == "BA-1001"
+    parsed_bn = parse_chat_command("/ba analyze BN-2025")
+    assert parsed_bn.story_key == "BN-2025"
+
+    # 2. Two requests with the same messageId but DIFFERENT raw CCCD numbers must return 422
+    r1 = client.post(
+        "/chat/commands",
+        json={
+            "messageId": "msg-pii-diff-1",
+            "userId": "ba_user",
+            "channel": "his-dev",
+            "text": "/ba analyze HIS-102 Bệnh nhân CCCD 079090001234",
+        },
+    )
+    assert r1.status_code == 202
+
+    r2 = client.post(
+        "/chat/commands",
+        json={
+            "messageId": "msg-pii-diff-1",
+            "userId": "ba_user",
+            "channel": "his-dev",
+            "text": "/ba analyze HIS-102 Bệnh nhân CCCD 001088999888",
+        },
+    )
+    assert r2.status_code == 422
+    assert r2.json()["detail"]["errorCode"] == "IDEMPOTENCY_PAYLOAD_MISMATCH"
+
+    # Ensure neither raw CCCD was stored in processed_messages
+    pm = db_session.scalar(
+        select(ProcessedMessage).where(ProcessedMessage.message_id == "msg-pii-diff-1")
+    )
+    assert pm is not None
+    assert "079090001234" not in pm.sanitized_text
+    assert "001088999888" not in pm.sanitized_text
+    assert "[MASKED_CCCD]" in pm.sanitized_text
+
+    # 3. Verify LocalRepoGitAdapter persists PR state across adapter re-instantiation (restart)
+    repo_dir = tmp_path / "restart_repo"
+    adapter_before = LocalRepoGitAdapter(repo_dir)
+    adapter_before.ensure_bot_branch("bot/HIS-999", from_ref="develop")
+    pr1 = adapter_before.create_or_update_pull_request(
+        head_branch="bot/HIS-999",
+        base_branch="develop",
+        title="[HIS-999] Initial PR",
+        body="Body before restart",
+    )
+    assert pr1.pr_id == "PR-HIS-999"
+
+    # Simulate process restart by creating a brand new LocalRepoGitAdapter instance
+    adapter_after = LocalRepoGitAdapter(repo_dir)
+    open_prs = adapter_after.list_open_pull_requests(head_branch="bot/HIS-999")
+    assert len(open_prs) == 1
+    assert open_prs[0].pr_id == "PR-HIS-999"

@@ -299,3 +299,119 @@ def test_all_boundary_dlp_zero_leak_across_all_10_tables_and_logs(
                 assert canary not in serialized, (
                     f"DLP leak detected in table {model.__tablename__}: found {canary!r}"
                 )
+
+
+def test_dlp_all_caps_names_extended_surnames_and_formatted_pii() -> None:
+    """Verify red-team DLP edge cases: ALL-CAPS names, extended surnames, formatted BHYT/Phone."""
+    # 1. ALL-CAPS Vietnamese names & extended surnames & names containing technical words
+    text_names = (
+        "Hôm qua NGUYỄN VĂN HÙNG, TRẦN THỊ MAI, Đào Duy Từ, Lương Thế Vinh, Cao Bá Quát, "
+        "Nguyễn Bảo Hiểm và Hồ Sơ Anh đến khám Ngoại Trú tại Hà Nội."
+    )
+    res_names = AllBoundaryDLP.sanitize_with_stats(text_names)
+    for leaked_name in (
+        "NGUYỄN VĂN HÙNG",
+        "TRẦN THỊ MAI",
+        "Đào Duy Từ",
+        "Lương Thế Vinh",
+        "Cao Bá Quát",
+        "Nguyễn Bảo Hiểm",
+        "Hồ Sơ Anh",
+    ):
+        assert leaked_name not in res_names.text, f"Failed to mask patient name: {leaked_name}"
+    assert "Hà Nội" in res_names.text
+
+    # 2. English Title Case starting with "To" or "Do" must NOT be falsely masked
+    english_title = "Status Report: To Be Continued And Do Not Repeat"
+    assert AllBoundaryDLP.sanitize_text(english_title) == english_title
+
+    # 3. Formatted BHYT cards, Phone numbers with dots/spaces, and quoted password with spaces/~
+    formatted_pii = (
+        "Thẻ BHYT: DN4-79-7912345678 hoặc DN 4 79 7912345678, "
+        "SĐT: 0909.123.456 và 0909 123 456, "
+        'config: password = "My Super$ecret!Pass~123"'
+    )
+    res_fmt = AllBoundaryDLP.sanitize_with_stats(formatted_pii)
+    assert "7912345678" not in res_fmt.text
+    assert "0909.123.456" not in res_fmt.text
+    assert "0909 123 456" not in res_fmt.text
+    assert "My Super$ecret!Pass~123" not in res_fmt.text
+    assert res_fmt.secrets_redacted >= 1
+    assert res_fmt.pii_masked >= 4
+
+
+def test_code_chunker_nested_interpolated_quotes_and_mixed_entities(tmp_path: Path) -> None:
+    """Verify C# lexer handles nested quotes inside $"{fn("}")}" & $@"..." without truncating."""
+    cs_file = tmp_path / "MixedController.cs"
+    cs_file.write_text(
+        "using System;\n"
+        "public class CreateVisitDto {\n"
+        "    public string CardNo { get; set; }\n"
+        "}\n"
+        '[Route("api/v1/registration")]\n'
+        "public class MixedController {\n"
+        '    [HttpPost("nested-quote")]\n'
+        "    public IActionResult Method1_NestedQuoteInInterp() {\n"
+        '        string s = $"Value is {GetVal("}")}";\n'
+        '        string v = $@"Path\\to\\file {GetVal("}")} end";\n'
+        "        if (s.Length > 0) {\n"
+        "            return Ok(s + v);\n"
+        "        }\n"
+        "        return BadRequest();\n"
+        "    }\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    chunks, code_maps = CodeChunker.chunk_code_file(
+        cs_file, "src/HIS.Registration.Api/Controllers/MixedController.cs"
+    )
+    method_chunks = [c for c in chunks if "Method1_NestedQuoteInInterp" in c.heading_or_symbol]
+    assert len(method_chunks) == 1
+    assert "return BadRequest();" in method_chunks[0].content
+    assert any(
+        cm.entry_type == "entity" and cm.controller_or_class == "CreateVisitDto" for cm in code_maps
+    )
+    assert any(
+        cm.entry_type == "api_endpoint" and cm.action_or_symbol == "Method1_NestedQuoteInInterp"
+        for cm in code_maps
+    )
+
+
+def test_alembic_online_and_offline_migrations(tmp_path: Path) -> None:
+    """Verify Alembic upgrade head, downgrade base, and offline --sql mode succeed cleanly."""
+    import subprocess
+    import sys
+
+    from alembic.config import Config
+    from sqlalchemy import create_engine, inspect
+
+    from alembic import command
+
+    mig_db = tmp_path / "alembic_verify.db"
+    db_url = f"sqlite:///{mig_db.as_posix()}"
+    cfg = Config("alembic.ini")
+    cfg.set_main_option("sqlalchemy.url", db_url)
+
+    command.upgrade(cfg, "head")
+    eng = create_engine(db_url)
+    insp = inspect(eng)
+    tables = set(insp.get_table_names())
+    assert "alembic_version" in tables
+    assert "kb_chunks" in tables
+    assert "workflow_stories" in tables
+
+    command.downgrade(cfg, "base")
+    insp_after = inspect(eng)
+    assert "kb_chunks" not in set(insp_after.get_table_names())
+    eng.dispose()
+
+    # Verify offline SQL generation (`alembic upgrade head --sql`) does not crash
+    proc = subprocess.run(
+        [sys.executable, "-m", "alembic", "upgrade", "head", "--sql"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode == 0, f"alembic --sql failed: {proc.stderr}"
+    assert "CREATE TABLE" in proc.stdout
+    assert "INSERT INTO users" in proc.stdout

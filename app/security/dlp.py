@@ -6,7 +6,7 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-# Common Vietnamese family names (accented and unaccented) for Layer 2 free-text name detection
+# Common Vietnamese family names (accented and safe unaccented) for Layer 2 free-text name detection
 VN_SURNAMES: tuple[str, ...] = (
     "Nguyễn",
     "Nguyen",
@@ -30,9 +30,7 @@ VN_SURNAMES: tuple[str, ...] = (
     "Bùi",
     "Bui",
     "Đỗ",
-    "Do",
     "Hồ",
-    "Ho",
     "Ngô",
     "Ngo",
     "Dương",
@@ -51,7 +49,6 @@ VN_SURNAMES: tuple[str, ...] = (
     "Tạ",
     "Ta",
     "Tô",
-    "To",
     "Châu",
     "Chau",
     "Lâm",
@@ -64,6 +61,117 @@ VN_SURNAMES: tuple[str, ...] = (
     "Trinh",
     "Kiều",
     "Kieu",
+    "Đào",
+    "Dao",
+    "Lương",
+    "Luong",
+    "Nghiêm",
+    "Nghiem",
+    "Tống",
+    "Tong",
+    "Quách",
+    "Quach",
+    "Cao",
+    "Lại",
+    "Lai",
+    "Khổng",
+    "Khong",
+    "Âu",
+    "Bế",
+    "Nông",
+    "Nong",
+    "Sùng",
+    "Vàng",
+    "Giàng",
+    "Giang",
+    "Lò",
+    "Điểu",
+    "Dieu",
+    "Danh",
+    "Sơn",
+    "Thạch",
+    "Thach",
+    "Lưu",
+    "Luu",
+    "Tăng",
+    "Tang",
+    "Hà",
+    "Chu",
+    "La",
+    "Từ",
+    "Tu",
+    "Thái",
+    "Thai",
+    "Đàm",
+    "Dam",
+    "Mạc",
+    "Mac",
+    "Triệu",
+    "Trieu",
+    "Ninh",
+    "Tôn",
+    "Văn",
+    "Quang",
+    "Trầm",
+)
+
+# Unaccented surnames that collide with common English words ("To", "Do", "Ho", "Ha")
+# Only treated as Vietnamese surnames when followed by a known Vietnamese middle/given syllable
+AMBIGUOUS_UNACCENTED_SURNAMES: tuple[str, ...] = ("Do", "To", "Ho", "Ha", "An", "Be", "Lo", "Son")
+VN_COMMON_SECOND_SYLLABLES: tuple[str, ...] = (
+    "Van",
+    "Thi",
+    "Minh",
+    "Quoc",
+    "Hoang",
+    "Duc",
+    "Ngoc",
+    "Bich",
+    "Thu",
+    "Anh",
+    "Tuan",
+    "Hung",
+    "Mai",
+    "Lan",
+    "Phuong",
+    "Huu",
+    "Duy",
+    "Khanh",
+    "Thanh",
+    "Xuan",
+    "Hong",
+    "Quang",
+    "Trong",
+    "Cong",
+    "ba",
+    "Ba",
+)
+
+TECHNICAL_ACRONYMS: frozenset[str] = frozenset(
+    {
+        "BHYT",
+        "CCCD",
+        "HSBA",
+        "FIFO",
+        "HTTP",
+        "POST",
+        "JSON",
+        "REST",
+        "RBAC",
+        "CSDL",
+        "VND",
+        "USD",
+        "API",
+        "SQL",
+        "HNSW",
+        "CORS",
+        "UUID",
+        "SHA",
+        "DLP",
+        "LLM",
+        "RAG",
+        "HIS",
+    }
 )
 
 TECHNICAL_PROPER_NOUN_WHITELIST: frozenset[str] = frozenset(
@@ -76,6 +184,8 @@ TECHNICAL_PROPER_NOUN_WHITELIST: frozenset[str] = frozenset(
         "benh vien",
         "bảo hiểm",
         "bao hiem",
+        "bảo hiểm y tế",
+        "bao hiem y te",
         "hệ thống",
         "he thong",
         "phần mềm",
@@ -86,8 +196,26 @@ TECHNICAL_PROPER_NOUN_WHITELIST: frozenset[str] = frozenset(
         "noi tru",
         "hồ sơ",
         "ho so",
+        "hồ sơ bệnh án",
+        "ho so benh an",
         "quy trình",
         "quy trinh",
+        "hà đông",
+        "ha dong",
+        "hà nam",
+        "ha nam",
+        "hà tĩnh",
+        "ha tinh",
+        "hà giang",
+        "ha giang",
+        "cao bằng",
+        "cao bang",
+        "thái nguyên",
+        "thai nguyen",
+        "thái bình",
+        "thai binh",
+        "lâm đồng",
+        "lam dong",
     }
 )
 
@@ -123,41 +251,59 @@ API_TOKEN_RE = re.compile(
 BEARER_TOKEN_RE = re.compile(r"(?i)\bBearer\s+[A-Za-z0-9\-._~+/]{12,}=*")
 KV_SECRET_RE = re.compile(
     r"(?i)\b(api[_-]?key|secret[_-]?key|password|passwd|client[_-]?secret|access[_-]?token)"
-    r"(\s*[:=]\s*[\"']?)([A-Za-z0-9@#$%^&*!._\-]{6,})([\"']?)"
+    r"(?:(\s*[:=]\s*[\"'])([^\"'\r\n]{6,})([\"'])|(\s*[:=]\s*)([A-Za-z0-9@#$%^&*!._\-~+/=?]{6,}))"
 )
 
-# PII regexes
+# PII regexes (supporting contiguous and hyphen/dot/space-separated formats)
 BHYT_CARD_RE = re.compile(
     r"\b(?:DN|HX|CH|NN|TK|HC|XK|HT|TB|NO|CT|XB|TN|CS|QN|CA|CY|XN|MS|CC|CK|CB|KC|HD|"
-    r"TE|BT|HN|DT|DK|XD|TS|TC|TQ|TA|TY|HG|LS|CN|HS|SV|GB|GD|PV)[1-5]\d{12}\b"
+    r"TE|BT|HN|DT|DK|XD|TS|TC|TQ|TA|TY|HG|LS|CN|HS|SV|GB|GD|PV)"
+    r"[\s\-]?[1-5](?:[\s\-]?\d){12}\b"
 )
 CCCD_RE = re.compile(r"\b0\d{11}\b")
-VN_PHONE_RE = re.compile(r"(?<!\d)(?:\+?84|0)(?:3[2-9]|5[2689]|7[06-9]|8[1-9]|9[0-9])\d{7}(?!\d)")
+VN_PHONE_RE = re.compile(
+    r"(?<!\d)(?:\+?84|0)[\s.\-]?(?:3[2-9]|5[2689]|7[06-9]|8[1-9]|9[0-9])"
+    r"(?:[\s.\-]?\d){7}(?!\d)"
+)
 EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
 DOB_RE = re.compile(
     r"\b(?:0?[1-9]|[12]\d|3[01])[\/\-](?:0?[1-9]|1[0-2])[\/\-](?:19\d{2}|20[0-2]\d)\b"
 )
 MRN_RE = re.compile(r"\b(?:BA|BN|HSBA|MRN)-\d{4}-\d{4,8}\b")
 
-# Vietnamese capitalized syllable pattern
-_VN_CAP_WORD = (
-    r"[A-ZÀÁẠẢÃÂẦẤẬẨẪĂẰẮẶẲẴÈÉẸẺẼÊỀẾỆỂỄÌÍỊỈĨÒÓỌỎÕÔỒỐỘỔỖƠỜỚỢỞỠ"
-    r"ÙÚỤỦŨƯỪỨỰỬỮỲÝỴỶỸĐ]"
-    r"[a-zàáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡ"
-    r"ùúụủũưừứựửữỳýỵỷỹđ]+"
-)
+# Vietnamese Title-Case and ALL-CAPS syllable patterns
+_VN_UPPER_CHARS = "A-ZÀÁẠẢÃÂẦẤẬẨẪĂẰẮẶẲẴÈÉẸẺẼÊỀẾỆỂỄÌÍỊỈĨÒÓỌỎÕÔỒỐỘỔỖƠỜỚỢỞỠÙÚỤỦŨƯỪỨỰỬỮỲÝỴỶỸĐ"
+_VN_LOWER_CHARS = "a-zàáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ"
 
-# Layer 1: Contextual patient label followed by 2-4 capitalized words
+_VN_TITLE_WORD = rf"[{_VN_UPPER_CHARS}][{_VN_LOWER_CHARS}]+"
+_VN_ALLCAPS_WORD = rf"[{_VN_UPPER_CHARS}]{{2,7}}"
+_VN_CAP_WORD = rf"(?:{_VN_TITLE_WORD}|{_VN_ALLCAPS_WORD})"
+
+# Layer 1: Contextual patient label followed by 2-4 Title-Case or ALL-CAPS words
 CONTEXTUAL_NAME_RE = re.compile(
     rf"(?P<prefix>(?:[Bb]ệnh nhân|[Bb][Nn]|[Hh]ọ và tên|[Hh]ọ tên|[Tt]ên bệnh nhân|"
     rf"[Ss]ản phụ|[Nn]hi đồng|patient[_ ]?name|full[_ ]?name)\s*[:=\-]?\s*)"
     rf"(?P<name>{_VN_CAP_WORD}(?:\s+{_VN_CAP_WORD}){{1,3}})"
 )
 
-# Layer 2: Unlabeled free-text Vietnamese full name (Surname + 1 to 3 capitalized syllables)
-_SURNAME_ALT = "|".join(re.escape(s) for s in VN_SURNAMES)
+# Layer 2: Unlabeled free-text Vietnamese full name (Title-Case or ALL-CAPS)
+_SURNAME_VARIANTS = list(dict.fromkeys([*VN_SURNAMES, *(s.upper() for s in VN_SURNAMES)]))
+_SURNAME_ALT = "|".join(re.escape(s) for s in _SURNAME_VARIANTS)
+_AMBIG_SURNAME_ALT = "|".join(
+    re.escape(s)
+    for s in [*AMBIGUOUS_UNACCENTED_SURNAMES, *(s.upper() for s in AMBIGUOUS_UNACCENTED_SURNAMES)]
+)
+_SECOND_SYLLABLE_ALT = "|".join(
+    re.escape(s)
+    for s in [*VN_COMMON_SECOND_SYLLABLES, *(s.upper() for s in VN_COMMON_SECOND_SYLLABLES)]
+)
+
 FREETEXT_VN_NAME_RE = re.compile(
-    rf"\b(?P<fullname>(?:{_SURNAME_ALT})(?:\s+{_VN_CAP_WORD}){{1,3}})\b"
+    rf"\b(?P<fullname>"
+    rf"(?:(?:{_SURNAME_ALT})(?:\s+{_VN_TITLE_WORD}){{1,3}})"
+    rf"|(?:(?:{_SURNAME_ALT})(?:\s+{_VN_ALLCAPS_WORD}){{1,3}})"
+    rf"|(?:(?:{_AMBIG_SURNAME_ALT})\s+(?:{_SECOND_SYLLABLE_ALT})(?:\s+{_VN_CAP_WORD}){{0,2}})"
+    rf")\b"
 )
 
 
@@ -196,11 +342,18 @@ class AllBoundaryDLP:
 
         def _replace_kv_secret(match: re.Match[str]) -> str:
             nonlocal secrets_count
-            val = match.group(3)
-            if val == "[REDACTED_SECRET]":
+            key_name = match.group(1)
+            if match.group(3) is not None:
+                val = match.group(3)
+                if val == "[REDACTED_SECRET]":
+                    return match.group(0)
+                secrets_count += 1
+                return f"{key_name}{match.group(2)}[REDACTED_SECRET]{match.group(4)}"
+            val_unquoted = match.group(6) or ""
+            if val_unquoted == "[REDACTED_SECRET]":
                 return match.group(0)
             secrets_count += 1
-            return f"{match.group(1)}{match.group(2)}[REDACTED_SECRET]{match.group(4)}"
+            return f"{key_name}{match.group(5)}[REDACTED_SECRET]"
 
         text = KV_SECRET_RE.sub(_replace_kv_secret, text)
 
@@ -234,16 +387,23 @@ class AllBoundaryDLP:
 
         text = CONTEXTUAL_NAME_RE.sub(_replace_ctx_name, text)
 
-        # Layer 2 Free-text Vietnamese full names (Surname + 1..3 capitalized syllables)
+        # Layer 2 Free-text Vietnamese full names (Surname + 1..3 capitalized/uppercase syllables)
         def _replace_freetext_name(match: re.Match[str]) -> str:
             nonlocal pii_count
             candidate = match.group("fullname").strip()
+            words = candidate.split()
+            if any(w.upper() in TECHNICAL_ACRONYMS for w in words):
+                return match.group(0)
             lowered = candidate.lower()
             if lowered in TECHNICAL_PROPER_NOUN_WHITELIST:
                 return match.group(0)
-            for whitelisted in TECHNICAL_PROPER_NOUN_WHITELIST:
-                if whitelisted in lowered:
-                    return match.group(0)
+            # If a 4-word match ends with a 2-word whitelisted technical phrase (e.g. "Ngoại Trú"),
+            # keep the technical suffix intact and mask the 2-word name prefix
+            if len(words) >= 4:
+                tail_two = " ".join(words[-2:]).lower()
+                if tail_two in TECHNICAL_PROPER_NOUN_WHITELIST:
+                    pii_count += 1
+                    return f"[MASKED_PATIENT_NAME] {' '.join(words[-2:])}"
             pii_count += 1
             return "[MASKED_PATIENT_NAME]"
 

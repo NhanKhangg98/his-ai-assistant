@@ -56,6 +56,8 @@ def should_ignore_path(path: Path | str) -> bool:
 def compute_line_brace_deltas(lines: list[str]) -> list[int]:
     """State-Machine Lexer computing net '{' minus '}' per line, ignoring strings and comments."""
     state = "NORMAL"
+    interp_hole_depth = 0
+    interp_inner_quote: str | None = None
     deltas: list[int] = []
 
     for line in lines:
@@ -65,6 +67,7 @@ def compute_line_brace_deltas(lines: list[str]) -> list[int]:
         while i < n:
             ch = line[i]
             nxt = line[i + 1] if i + 1 < n else ""
+            nxt2 = line[i + 2] if i + 2 < n else ""
 
             if state == "NORMAL":
                 if ch == "/" and nxt == "/":
@@ -73,12 +76,22 @@ def compute_line_brace_deltas(lines: list[str]) -> list[int]:
                     state = "BLOCK_COMMENT"
                     i += 2
                     continue
+                if (ch == "$" and nxt == "@" and nxt2 == '"') or (
+                    ch == "@" and nxt == "$" and nxt2 == '"'
+                ):
+                    state = "VERBATIM_INTERP_STRING"
+                    interp_hole_depth = 0
+                    interp_inner_quote = None
+                    i += 3
+                    continue
                 if ch == "@" and nxt == '"':
                     state = "VERBATIM_STRING"
                     i += 2
                     continue
                 if ch == "$" and nxt == '"':
                     state = "INTERP_STRING"
+                    interp_hole_depth = 0
+                    interp_inner_quote = None
                     i += 2
                     continue
                 if ch == '"':
@@ -115,15 +128,47 @@ def compute_line_brace_deltas(lines: list[str]) -> list[int]:
                 else:
                     i += 1
 
-            elif state == "INTERP_STRING":
-                # Inside C# $"...", ignore all braces so interpolation never skews method depth
-                if ch == "\\":
-                    i += 2
-                elif ch == '"':
-                    state = "NORMAL"
-                    i += 1
+            elif state in ("INTERP_STRING", "VERBATIM_INTERP_STRING"):
+                # Track nested interpolation holes {...} and inner string literals "..."
+                if interp_hole_depth > 0:
+                    if interp_inner_quote is not None:
+                        if ch == "\\":
+                            i += 2
+                        elif ch == interp_inner_quote:
+                            interp_inner_quote = None
+                            i += 1
+                        else:
+                            i += 1
+                    else:
+                        if ch in ('"', "'"):
+                            interp_inner_quote = ch
+                            i += 1
+                        elif ch == "{":
+                            interp_hole_depth += 1
+                            i += 1
+                        elif ch == "}":
+                            interp_hole_depth -= 1
+                            i += 1
+                        else:
+                            i += 1
                 else:
-                    i += 1
+                    if ch == "{" and nxt == "{":
+                        i += 2
+                    elif ch == "}" and nxt == "}":
+                        i += 2
+                    elif ch == "{":
+                        interp_hole_depth = 1
+                        interp_inner_quote = None
+                        i += 1
+                    elif state == "INTERP_STRING" and ch == "\\":
+                        i += 2
+                    elif state == "VERBATIM_INTERP_STRING" and ch == '"' and nxt == '"':
+                        i += 2
+                    elif ch == '"':
+                        state = "NORMAL"
+                        i += 1
+                    else:
+                        i += 1
 
             elif state == "VERBATIM_STRING":
                 if ch == '"' and nxt == '"':
@@ -283,10 +328,11 @@ class CodeChunker:
         chunks: list[RawChunkDraft] = []
         code_maps: list[CodeMapDraft] = []
 
-        # Check if this file defines C# Entities (no HTTP methods)
         has_methods = any(CS_METHOD_SIG_RE.search(ln) for ln in lines)
+        cls._extract_csharp_entities(
+            lines, deltas, rel_path, his_module, chunks, code_maps, require_props=has_methods
+        )
         if not has_methods:
-            cls._extract_csharp_entities(lines, deltas, rel_path, his_module, chunks, code_maps)
             return chunks, code_maps
 
         n = len(lines)
@@ -372,6 +418,7 @@ class CodeChunker:
         his_module: str,
         chunks: list[RawChunkDraft],
         code_maps: list[CodeMapDraft],
+        require_props: bool = False,
     ) -> None:
         n = len(lines)
         i = 0
@@ -395,17 +442,22 @@ class CodeChunker:
                     if opened and brace_balance <= 0:
                         break
 
+                if require_props and not props:
+                    i += 1
+                    continue
+
                 entity_lines = lines[start_idx : end_idx + 1]
-                chunks.extend(
-                    _split_oversized_code_chunk(
-                        symbol=entity_name,
-                        signature_header=f"class {entity_name}",
-                        lines=entity_lines,
-                        start_line=start_idx + 1,
-                        his_module=his_module,
-                        rel_path=rel_path,
+                if not require_props:
+                    chunks.extend(
+                        _split_oversized_code_chunk(
+                            symbol=entity_name,
+                            signature_header=f"class {entity_name}",
+                            lines=entity_lines,
+                            start_line=start_idx + 1,
+                            his_module=his_module,
+                            rel_path=rel_path,
+                        )
                     )
-                )
                 prop_str = ", ".join(props) if props else "Entity"
                 summary = (
                     f"[Entity] {entity_name} ({prop_str}) in {rel_path} (Module: {his_module})"
@@ -423,8 +475,9 @@ class CodeChunker:
                         summary_text=summary,
                     )
                 )
-                i = end_idx + 1
-                continue
+                if not require_props:
+                    i = end_idx + 1
+                    continue
             i += 1
 
     @classmethod

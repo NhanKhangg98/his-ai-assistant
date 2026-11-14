@@ -57,12 +57,26 @@ def seed_default_users(session: Session) -> None:
 
 
 def init_db(database_url: str | None = None) -> None:
-    """Initialize database extensions, tables, and seed users idempotently."""
+    """Initialize database extensions, tables, PostgreSQL HNSW/GIN indexes, and seed users."""
     engine = get_engine(database_url)
     if engine.dialect.name == "postgresql":
         with engine.begin() as conn:
             conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
     Base.metadata.create_all(bind=engine)
+    if engine.dialect.name == "postgresql":
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS idx_kb_chunks_embedding_hnsw "
+                    "ON kb_chunks USING hnsw (embedding vector_cosine_ops);"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS idx_kb_chunks_tsv_gin "
+                    "ON kb_chunks USING gin (content_tsv);"
+                )
+            )
     factory = get_session_factory(database_url)
     with factory() as session:
         seed_default_users(session)

@@ -8,11 +8,10 @@ Create Date: 2026-11-14 00:00:00
 from __future__ import annotations
 
 from sqlalchemy import text
-from sqlalchemy.orm import Session
 
 from alembic import op
 from app.db.models import Base
-from app.db.session import seed_default_users
+from app.db.session import DEFAULT_USERS
 
 revision: str = "0001_initial_schema"
 down_revision: str | None = None
@@ -44,11 +43,14 @@ def upgrade() -> None:
             )
         )
 
-    session = Session(bind=bind)
-    try:
-        seed_default_users(session)
-    finally:
-        session.close()
+    for user_id, role, display_name in DEFAULT_USERS:
+        op.execute(
+            text(
+                "INSERT INTO users (user_id, role, display_name, is_active, created_at) "
+                f"VALUES ('{user_id}', '{role}', '{display_name}', true, CURRENT_TIMESTAMP) "
+                "ON CONFLICT (user_id) DO NOTHING;"
+            )
+        )
 
 
 def downgrade() -> None:

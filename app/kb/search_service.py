@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from app.db.models import KbChunk, KbFile, User
@@ -80,7 +80,22 @@ class HybridSearchService:
         allowed_types = resolve_allowed_chunk_types(role)
         top_k = max(1, min(top_k, 20))
 
-        # 1. RBAC Pre-Filter at SQL level BEFORE any vector/lexical ranking or LIMIT
+        query_vec = DeterministicEmbedding.encode(clean_query)
+        query_tokens = set(extract_normalized_tokens(clean_query))
+
+        bind = self.session.get_bind()
+        if bind.dialect.name == "postgresql":
+            return self._search_postgresql_native(
+                clean_query=clean_query,
+                role=role,
+                allowed_types=allowed_types,
+                top_k=top_k,
+                his_module=his_module,
+                query_vec=query_vec,
+                query_tokens=query_tokens,
+            )
+
+        # 1. RBAC Pre-Filter at SQL level before vector/lexical ranking or LIMIT (SQLite fallback)
         stmt = (
             select(KbChunk, KbFile.file_path)
             .join(KbFile, KbChunk.file_id == KbFile.id)
@@ -97,9 +112,6 @@ class HybridSearchService:
                 "totalResults": 0,
                 "results": [],
             }
-
-        query_vec = DeterministicEmbedding.encode(clean_query)
-        query_tokens = set(extract_normalized_tokens(clean_query))
 
         # 2. Compute Vector Cosine Similarity and Lexical Match Score on RBAC-filtered candidates
         vec_scored: list[tuple[str, float]] = []
@@ -143,28 +155,12 @@ class HybridSearchService:
             fused.append((cid, rrf_score + tie_break))
 
         fused.sort(key=lambda x: x[1], reverse=True)
-        top_Matches = fused[:top_k]
+        top_matches = fused[:top_k]
 
         results: list[dict[str, Any]] = []
-        for cid, score in top_Matches:
+        for cid, score in top_matches:
             chunk, file_path = chunk_map[cid]
-            meta = chunk.metadata_json or {}
-            citation = {
-                "file": meta.get("file", file_path),
-                "heading": meta.get("heading", chunk.heading_or_symbol),
-                "page": chunk.page_number,
-                "startLine": chunk.start_line,
-                "endLine": chunk.end_line,
-                "hisModule": chunk.his_module,
-            }
-            item = SearchResultItem(
-                chunk_id=chunk.id,
-                chunk_type=chunk.chunk_type,
-                score=score,
-                content=AllBoundaryDLP.sanitize_text(chunk.content),
-                citation=AllBoundaryDLP.sanitize_obj(citation),
-            )
-            results.append(item.to_dict())
+            results.append(self._format_result_item(chunk, file_path, score))
 
         return {
             "query": clean_query,
@@ -172,3 +168,115 @@ class HybridSearchService:
             "totalResults": len(results),
             "results": results,
         }
+
+    def _search_postgresql_native(
+        self,
+        clean_query: str,
+        role: str,
+        allowed_types: tuple[str, ...],
+        top_k: int,
+        his_module: str | None,
+        query_vec: list[float],
+        query_tokens: set[str],
+    ) -> dict[str, Any]:
+        """Execute native PostgreSQL pgvector HNSW (<=>) + GIN FTS (@@) Hybrid RRF query."""
+        vec_literal = "[" + ",".join(f"{v:.6f}" for v in query_vec) + "]"
+        safe_tokens = [t for t in sorted(query_tokens) if t.isalnum() or "_" in t or "-" in t]
+        tsquery_str = " | ".join(safe_tokens) if safe_tokens else "bhyt"
+        module_clause = "AND kc.his_module = :his_module" if his_module else ""
+
+        sql = text(
+            f"""
+            WITH rbac_filtered AS (
+                SELECT
+                    kc.id,
+                    (1.0 - (kc.embedding <=> CAST(:qvec AS vector(128)))) AS v_sim,
+                    COALESCE(
+                        ts_rank_cd(
+                            kc.content_tsv,
+                            to_tsquery('simple', :tsq)
+                        ),
+                        0.0
+                    ) AS l_sim
+                FROM kb_chunks kc
+                WHERE kc.chunk_type = ANY(:allowed_types)
+                {module_clause}
+            ),
+            ranked AS (
+                SELECT
+                    id,
+                    v_sim,
+                    l_sim,
+                    ROW_NUMBER() OVER (ORDER BY v_sim DESC) AS r_v,
+                    ROW_NUMBER() OVER (ORDER BY l_sim DESC, v_sim DESC) AS r_l
+                FROM rbac_filtered
+            )
+            SELECT
+                id,
+                ((1.0 / (:rrf_k + r_v)) + (1.0 / (:rrf_k + r_l)) + 0.001 * (v_sim + 0.1 * l_sim))
+                    AS rrf_score
+            FROM ranked
+            ORDER BY rrf_score DESC
+            LIMIT :top_k;
+            """
+        )
+        params: dict[str, Any] = {
+            "qvec": vec_literal,
+            "tsq": tsquery_str,
+            "allowed_types": list(allowed_types),
+            "rrf_k": RRF_K,
+            "top_k": top_k,
+        }
+        if his_module:
+            params["his_module"] = his_module
+
+        rows = self.session.execute(sql, params).all()
+        if not rows:
+            return {
+                "query": clean_query,
+                "role": role,
+                "totalResults": 0,
+                "results": [],
+            }
+
+        chunk_ids = [r[0] for r in rows]
+        score_by_id = {r[0]: float(r[1]) for r in rows}
+        fetched = self.session.execute(
+            select(KbChunk, KbFile.file_path)
+            .join(KbFile, KbChunk.file_id == KbFile.id)
+            .where(KbChunk.id.in_(chunk_ids))
+        ).all()
+        by_id = {c.id: (c, fp) for c, fp in fetched}
+
+        results: list[dict[str, Any]] = []
+        for cid in chunk_ids:
+            if cid in by_id:
+                chunk, file_path = by_id[cid]
+                results.append(self._format_result_item(chunk, file_path, score_by_id[cid]))
+
+        return {
+            "query": clean_query,
+            "role": role,
+            "totalResults": len(results),
+            "results": results,
+        }
+
+    @staticmethod
+    def _format_result_item(chunk: KbChunk, file_path: str, score: float) -> dict[str, Any]:
+        meta = chunk.metadata_json or {}
+        citation = {
+            "file": meta.get("file", file_path),
+            "heading": meta.get("heading", chunk.heading_or_symbol),
+            "page": chunk.page_number,
+            "startLine": chunk.start_line,
+            "endLine": chunk.end_line,
+            "hisModule": chunk.his_module,
+        }
+        item = SearchResultItem(
+            chunk_id=chunk.id,
+            chunk_type=chunk.chunk_type,
+            score=score,
+            content=AllBoundaryDLP.sanitize_text(chunk.content),
+            citation=AllBoundaryDLP.sanitize_obj(citation),
+        )
+        return item.to_dict()

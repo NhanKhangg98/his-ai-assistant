@@ -9,63 +9,63 @@
   {
     "question_id": "Q02",
     "role": "BA",
-    "query": "Bảng mã quyền lợi và tỷ lệ hưởng BHYT ngoại trú cho mức 1 DN1 và mức 4 DN4?",
+    "query": "Bảng mã quyền lợi và tỷ lệ hưởng BHYT ngoại trú cho đối tượng mức 1 và mức 4?",
     "expected_file": "docs/quy_trinh_tiep_nhan_bhyt.md",
     "expected_keyword": "DN4"
   },
   {
     "question_id": "Q03",
     "role": "QC",
-    "query": "Quy định kê đơn thuốc ngoại trú và cảnh báo tương tác thuốc chống chỉ định Warfarin Aspirin?",
+    "query": "Quy định kê đơn thuốc ngoại trú và cảnh báo tương tác thuốc chống chỉ định?",
     "expected_file": "docs/quy_dinh_ke_don_va_cap_phat_thuoc.docx",
     "expected_keyword": "validate-interaction"
   },
   {
     "question_id": "Q04",
     "role": "QC",
-    "query": "Phân loại xuất kho cấp phát thuốc BHYT trừ tồn kho FIFO theo lô hạn dùng?",
+    "query": "Quy tắc xuất kho cấp phát thuốc BHYT trừ tồn kho theo lô và hạn dùng?",
     "expected_file": "docs/quy_dinh_ke_don_va_cap_phat_thuoc.docx",
     "expected_keyword": "FIFO"
   },
   {
     "question_id": "Q05",
     "role": "BA",
-    "query": "Công thức tính đồng chi trả viện phí BHYT và ngưỡng miễn đồng chi trả 15% lương cơ sở 351000 VND?",
+    "query": "Công thức tính đồng chi trả viện phí BHYT và ngưỡng miễn đồng chi trả dưới 15% lương cơ sở?",
     "expected_file": "docs/bang_gia_vien_phi_va_thanh_toan_bhyt.pdf",
     "expected_keyword": "351,000"
   },
   {
     "question_id": "Q06",
     "role": "BA",
-    "query": "Bảng tham số quỹ khám chữa bệnh BHYT lương cơ sở BASE_SALARY_VND 2340000 và trần 6 tháng?",
+    "query": "Bảng tham số quỹ khám chữa bệnh BHYT về mức lương cơ sở và trần đồng chi trả 6 tháng?",
     "expected_file": "docs/bang_gia_vien_phi_va_thanh_toan_bhyt.pdf",
     "expected_keyword": "BASE_SALARY_VND"
   },
   {
     "question_id": "Q07",
     "role": "BA",
-    "query": "API endpoint đăng ký khám ngoại trú BHYT POST /api/v1/registration/outpatient-bhyt nằm ở controller nào?",
+    "query": "Đường dẫn API dùng để đăng ký khám bảo hiểm y tế ngoại trú nằm ở controller nào?",
     "expected_file": "src/HIS.Registration.Api/Controllers/PatientRegistrationController.cs",
     "expected_keyword": "RegisterOutpatientBhytAsync"
   },
   {
     "question_id": "Q08",
     "role": "Dev",
-    "query": "Implementation source code của hàm RegisterOutpatientBhytAsync kiểm tra FiveYearContinuousDate và CopayRate?",
+    "query": "Hàm xử lý logic kiểm tra 5 năm liên tục khi tiếp nhận bệnh nhân ngoại trú ở tầng backend?",
     "expected_file": "src/HIS.Registration.Api/Controllers/PatientRegistrationController.cs",
     "expected_keyword": "qualifiesFiveYear"
   },
   {
     "question_id": "Q09",
     "role": "Dev",
-    "query": "Cấu trúc entity OutpatientVisit và BhytCardInfo trong phân hệ Registration gồm các trường nào?",
+    "query": "Lớp dữ liệu lưu thông tin lượt khám ngoại trú của bệnh nhân gồm những thuộc tính nào?",
     "expected_file": "src/HIS.Registration.Api/Entities/OutpatientRegistrationEntities.cs",
     "expected_keyword": "OutpatientVisit"
   },
   {
     "question_id": "Q10",
     "role": "Dev",
-    "query": "React component BhytRegistrationForm và hàm validateBhytCardFormat kiểm tra định dạng thẻ BHYT ở frontend?",
+    "query": "Biểu thức chính quy kiểm tra định dạng mã thẻ bảo hiểm y tế trên giao diện React?",
     "expected_file": "frontend/src/components/BhytRegistrationForm.tsx",
     "expected_keyword": "BhytRegistrationForm"
   }

@@ -45,8 +45,6 @@ class EvalService:
                 if cit_file == expected_file and (not expected_kw or expected_kw in content_low):
                     matched_rank = rank_idx
                     break
-                if cit_file == expected_file and matched_rank is None:
-                    matched_rank = rank_idx
 
             is_hit = matched_rank is not None and matched_rank <= k
             if is_hit:

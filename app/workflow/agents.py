@@ -95,6 +95,23 @@ class WorkflowAgents:
             context={"action": "analyze", "story_key": story_key},
         )
 
+        default_endpoint_by_module = {
+            "Registration": "POST /api/v1/registration/outpatient-bhyt",
+            "Pharmacy": "POST /api/v1/pharmacy/prescriptions/validate-interaction",
+            "Billing": "POST /api/v1/billing/bhyt-settlement/calculate-copay",
+        }
+        dynamic_endpoints = [
+            r["citation"]["heading"]
+            for r in kb_hits["results"]
+            if r.get("chunkType") == "code_map" and "/" in r["citation"].get("heading", "")
+        ]
+        if not dynamic_endpoints:
+            dynamic_endpoints = [
+                default_endpoint_by_module.get(
+                    issue.his_module, "POST /api/v1/registration/outpatient-bhyt"
+                )
+            ]
+
         return AllBoundaryDLP.sanitize_obj(
             {
                 "step": 1,
@@ -106,8 +123,8 @@ class WorkflowAgents:
                     "When hệ thống kiểm tra FiveYearContinuousDate và đồng chi trả >= 14,040,000\n"
                     "Then áp dụng CopayRate = 0% và tạo phiếu khám BHYT."
                 ),
-                "impactedHisModules": [issue.his_module, "Billing"],
-                "impactedEndpoints": ["POST /api/v1/registration/outpatient-bhyt"],
+                "impactedHisModules": list(dict.fromkeys([issue.his_module, "Billing"])),
+                "impactedEndpoints": dynamic_endpoints,
                 "citations": citations,
                 "llmSummary": llm_res.content,
                 "llmProvider": llm_res.provider_name,
@@ -174,16 +191,43 @@ class WorkflowAgents:
             prompt=prompt,
             context={"action": "plan", "story_key": story_key},
         )
+        code_files_from_kb = list(
+            dict.fromkeys(
+                r["citation"]["file"]
+                for r in kb_hits["results"]
+                if r["citation"]["file"].endswith((".cs", ".ts", ".tsx"))
+            )
+        )
+        default_files_by_module = {
+            "Registration": [
+                "src/HIS.Registration.Api/Controllers/PatientRegistrationController.cs",
+                "src/HIS.Registration.Api/Entities/OutpatientRegistrationEntities.cs",
+                "frontend/src/components/BhytRegistrationForm.tsx",
+            ],
+            "Pharmacy": [
+                "src/HIS.Pharmacy.Api/Controllers/PrescriptionDispenseController.cs",
+            ],
+            "Billing": [
+                "src/HIS.Billing.Api/Controllers/BhytSettlementController.cs",
+            ],
+        }
+        files_to_modify = list(
+            dict.fromkeys(
+                [
+                    *code_files_from_kb,
+                    *default_files_by_module.get(
+                        issue.his_module, default_files_by_module["Registration"]
+                    ),
+                ]
+            )
+        )
+
         return AllBoundaryDLP.sanitize_obj(
             {
                 "step": 3,
                 "action": "plan",
                 "storyKey": story_key,
-                "filesToModify": [
-                    "src/HIS.Registration.Api/Controllers/PatientRegistrationController.cs",
-                    "src/HIS.Registration.Api/Entities/OutpatientRegistrationEntities.cs",
-                    "frontend/src/components/BhytRegistrationForm.tsx",
-                ],
+                "filesToModify": files_to_modify,
                 "apiAndDbChanges": [
                     "Cập nhật POST /api/v1/registration/outpatient-bhyt kiểm tra 5 năm liên tục.",
                     "Bổ sung cột FiveYearContinuousDate trên bảng OutpatientVisit.",

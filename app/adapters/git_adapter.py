@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import re
 import subprocess
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
@@ -65,7 +67,38 @@ class LocalRepoGitAdapter(GitAdapterProtocol):
         settings = get_settings()
         self.repo_dir = Path(repo_path or settings.his_repo_path).resolve()
         ensure_sample_git_repo(self.repo_dir)
+        self._pr_store_path = self.repo_dir / ".git" / "mock_pull_requests.json"
         self._pull_requests: dict[tuple[str, str], PullRequestInfo] = {}
+        self._load_persisted_prs()
+
+    def _load_persisted_prs(self) -> None:
+        if not self._pr_store_path.exists():
+            return
+        try:
+            raw_list = json.loads(self._pr_store_path.read_text(encoding="utf-8"))
+            for item in raw_list:
+                pr = PullRequestInfo(
+                    pr_id=item["pr_id"],
+                    head_branch=item["head_branch"],
+                    base_branch=item["base_branch"],
+                    title=item["title"],
+                    body=item["body"],
+                    head_commit_sha=item["head_commit_sha"],
+                    status=item.get("status", "OPEN"),
+                )
+                self._pull_requests[(pr.head_branch, pr.base_branch)] = pr
+        except Exception:
+            pass
+
+    def _save_persisted_prs(self) -> None:
+        try:
+            payload = [asdict(pr) for pr in self._pull_requests.values()]
+            self._pr_store_path.write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        except Exception:
+            pass
 
     def _git(self, args: list[str]) -> str:
         proc = subprocess.run(
@@ -162,11 +195,13 @@ class LocalRepoGitAdapter(GitAdapterProtocol):
         clean_body = AllBoundaryDLP.sanitize_text(body)
         pr_key = (valid_head, base_branch)
 
+        self._load_persisted_prs()
         existing = self._pull_requests.get(pr_key)
         if existing is not None and existing.status == "OPEN":
             existing.title = clean_title
             existing.body = clean_body
             existing.head_commit_sha = sha
+            self._save_persisted_prs()
             return existing
 
         story_suffix = valid_head.split("/", 1)[1]
@@ -180,10 +215,12 @@ class LocalRepoGitAdapter(GitAdapterProtocol):
             status="OPEN",
         )
         self._pull_requests[pr_key] = pr_info
+        self._save_persisted_prs()
         return pr_info
 
     def list_open_pull_requests(self, head_branch: str | None = None) -> list[PullRequestInfo]:
         """Return open pull requests (optionally filtered by head_branch)."""
+        self._load_persisted_prs()
         prs = [pr for pr in self._pull_requests.values() if pr.status == "OPEN"]
         if head_branch is not None:
             prs = [pr for pr in prs if pr.head_branch == head_branch]
@@ -194,8 +231,9 @@ _GLOBAL_GIT_ADAPTER: LocalRepoGitAdapter | None = None
 
 
 def get_git_adapter() -> LocalRepoGitAdapter:
-    """Return singleton LocalRepoGitAdapter instance."""
+    """Return singleton LocalRepoGitAdapter instance synchronized with current settings."""
     global _GLOBAL_GIT_ADAPTER
-    if _GLOBAL_GIT_ADAPTER is None:
-        _GLOBAL_GIT_ADAPTER = LocalRepoGitAdapter()
+    target_dir = get_settings().resolved_repo_path
+    if _GLOBAL_GIT_ADAPTER is None or _GLOBAL_GIT_ADAPTER.repo_dir != target_dir:
+        _GLOBAL_GIT_ADAPTER = LocalRepoGitAdapter(target_dir)
     return _GLOBAL_GIT_ADAPTER

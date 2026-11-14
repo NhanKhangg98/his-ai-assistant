@@ -23,11 +23,87 @@ DOMAIN_CONCEPT_CLUSTERS: tuple[tuple[str, ...], ...] = (
     ("pharmacy", "duoc", "kedon", "prescription", "thuoc", "capphat", "dispense", "fifo"),
     ("interaction", "tuongtac", "chongchidinh", "contraindicated", "warfarin", "aspirin", "diung"),
     ("billing", "vienphi", "thanhtoan", "settlement", "doisoat", "calculatebhytcopayasync"),
-    ("basesalary", "luongcoso", "2340000", "351000", "freecopaythreshold", "15%"),
-    ("controller", "api", "endpoint", "post", "get", "route", "v1"),
-    ("entity", "entities", "model", "outpatientvisit", "bhytcardinfo", "outpatientbhytpayload"),
-    ("component", "react", "tsx", "form", "bhytregistrationform", "validatebhytcardformat"),
-    ("hisApiClient", "submitoutpatientbhytregistration", "service", "frontend"),
+    ("basesalary", "luongcoso", "2340000", "351000", "freecopaythreshold", "15%", "6thang"),
+    ("controller", "api", "endpoint", "post", "get", "route", "v1", "duongdan"),
+    (
+        "entity",
+        "entities",
+        "model",
+        "lop",
+        "dulieu",
+        "thuoctinh",
+        "luotkham",
+        "truong",
+        "outpatientvisit",
+        "bhytcardinfo",
+        "outpatientbhytpayload",
+    ),
+    (
+        "component",
+        "react",
+        "tsx",
+        "form",
+        "giaodien",
+        "bieuthuc",
+        "chinhquy",
+        "dinhdang",
+        "regex",
+        "bhytregistrationform",
+        "validatebhytcardformat",
+    ),
+    ("hisapiclient", "submitoutpatientbhytregistration", "service", "frontend", "client"),
+    (
+        "backend",
+        "ham",
+        "xuly",
+        "logic",
+        "tang",
+        "qualifiesfiveyear",
+        "registeroutpatientbhytasync",
+    ),
+)
+
+# Bilingual phrase-to-identifier synonym expansion (Vietnamese natural queries <-> C#/TS symbols)
+BILINGUAL_PHRASE_SYNONYMS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
+    (
+        ("duong dan api", "api endpoint", "endpoint dang ky", "route dang ky"),
+        ("endpoint", "route", "api", "post", "registeroutpatientbhytasync", "outpatient-bhyt"),
+    ),
+    (
+        ("ham xu ly", "tang backend", "logic kiem tra 5 nam", "implementation source code"),
+        ("registeroutpatientbhytasync", "qualifiesfiveyear", "fiveyearcontinuousdate", "copayrate"),
+    ),
+    (
+        ("lop du lieu", "luot kham ngoai tru", "thuoc tinh", "cau truc entity"),
+        (
+            "entity",
+            "outpatientvisit",
+            "bhytcardinfo",
+            "visitid",
+            "patientid",
+            "fiveyearcontinuousdate",
+        ),
+    ),
+    (
+        ("bieu thuc chinh quy", "kiem tra dinh dang", "giao dien react", "react component"),
+        ("validatebhytcardformat", "bhytregistrationform", "react", "component", "tsx"),
+    ),
+    (
+        ("tuong tac thuoc", "chong chi dinh", "canh bao tuong tac"),
+        ("validate-interaction", "warfarin", "aspirin", "contraindicated", "interaction"),
+    ),
+    (
+        ("tru ton kho", "theo lo han dung", "xuat kho cap phat"),
+        ("fifo", "dispense", "expiry", "batch"),
+    ),
+    (
+        ("15% luong co so", "nguong mien dong chi tra", "cong thuc tinh dong chi tra"),
+        ("351000", "351,000", "copay", "freecopaythreshold"),
+    ),
+    (
+        ("tham so quy", "tran 6 thang", "luong co so"),
+        ("base_salary_vnd", "2340000", "14040000"),
+    ),
 )
 
 
@@ -39,7 +115,7 @@ def strip_vietnamese_accents(text: str) -> str:
 
 
 def extract_normalized_tokens(text: str) -> list[str]:
-    """Extract lowercase tokens with CamelCase splitting and Vietnamese accent normalization."""
+    """Extract lowercase tokens with CamelCase splitting, Vietnamese normalization, and synonyms."""
     if not text:
         return []
     raw_words = WORD_TOKEN_RE.findall(text)
@@ -61,6 +137,14 @@ def extract_normalized_tokens(text: str) -> list[str]:
                 p_low = strip_vietnamese_accents(piece.lower())
                 if len(p_low) >= 2:
                     tokens.append(p_low)
+
+    unaccented_full = strip_vietnamese_accents(text.lower())
+    for trigger_phrases, expansion_tokens in BILINGUAL_PHRASE_SYNONYMS:
+        if any(tp in unaccented_full for tp in trigger_phrases):
+            for exp_tok in expansion_tokens:
+                if exp_tok not in tokens:
+                    tokens.append(exp_tok)
+
     return tokens
 
 

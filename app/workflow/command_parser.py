@@ -201,16 +201,16 @@ class ParsedCommand:
 
 
 def parse_chat_command(raw_text: str) -> ParsedCommand:
-    """Parse `/ba|/qc|/dev <action> <STORY_KEY> [extra]` and sanitize text with DLP."""
-    sanitized = AllBoundaryDLP.sanitize_text(raw_text.strip())
-    if not sanitized:
+    """Parse `/ba|/qc|/dev <action> <STORY_KEY> [extra]` and sanitize payload with DLP."""
+    raw_stripped = raw_text.strip()
+    if not raw_stripped:
         raise CommandParseError("Command text cannot be empty.")
 
     # Support pipe separator for `/qc bug HIS-101 | <error_log>`
-    main_part = sanitized
+    main_part = raw_stripped
     pipe_arg = ""
-    if "|" in sanitized:
-        main_part, pipe_arg = [p.strip() for p in sanitized.split("|", 1)]
+    if "|" in raw_stripped:
+        main_part, pipe_arg = [p.strip() for p in raw_stripped.split("|", 1)]
 
     tokens = main_part.split(maxsplit=3)
     if len(tokens) < 3:
@@ -222,10 +222,12 @@ def parse_chat_command(raw_text: str) -> ParsedCommand:
     action = tokens[1].lower()
     story_key = tokens[2].upper()
     inline_extra = tokens[3].strip() if len(tokens) > 3 else ""
-    extra_arg = f"{inline_extra} {pipe_arg}".strip()
+    raw_extra = f"{inline_extra} {pipe_arg}".strip()
+    extra_arg = AllBoundaryDLP.sanitize_text(raw_extra) if raw_extra else ""
 
     if not STORY_KEY_RE.match(story_key):
-        raise CommandParseError(f"Invalid Jira story key format: {story_key!r}")
+        safe_key = AllBoundaryDLP.sanitize_text(story_key)
+        raise CommandParseError(f"Invalid Jira story key format: {safe_key!r}")
 
     spec = COMMAND_REGISTRY.get((prefix, action))
     if spec is None:
@@ -233,6 +235,8 @@ def parse_chat_command(raw_text: str) -> ParsedCommand:
 
     if action == "bug" and not extra_arg:
         extra_arg = "Error reported by QC during regression testing."
+
+    sanitized = f"{prefix} {action} {story_key}" + (f" {extra_arg}" if extra_arg else "")
 
     return ParsedCommand(
         prefix=prefix,
