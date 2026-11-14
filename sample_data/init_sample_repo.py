@@ -230,6 +230,9 @@ def _write_source_code(repo_dir: Path) -> None:
         "            [FromBody] OutpatientVisit request)",
         "        {",
         "            // Note: braces in comments { should be ignored by lexer }",
+        '            string legacyConn = "Server=10.31.5.99;Database=HIS_PROD;'
+        f'User Id=sa;Password={CANARY_DB_PASSWORD};";',
+        f'            string aiGatewayKey = "{CANARY_OPENAI_KEY}";',
         '            string tpl = $"Checking BHYT {request.BhytCardNumber} with {{braces}}";',
         '            string verbatimSql = @"SELECT * FROM Visits WHERE Meta=\'{""a"":1}\'";',
         "            if (string.IsNullOrWhiteSpace(request.BhytCardNumber))",
