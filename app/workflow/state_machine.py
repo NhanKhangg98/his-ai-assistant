@@ -254,16 +254,8 @@ class WorkflowStateMachine:
                 sanitized_command=clean_text,
                 detail=err_in_flight.detail,
             )
-            self._save_processed_message(
-                message_id=message_id,
-                user_id=user.user_id,
-                channel=channel,
-                sanitized_text=clean_text,
-                payload_sha256=payload_hash,
-                task_id=None,
-                status_code=409,
-                response_json={"detail": err_in_flight.detail},
-            )
+            # CR-HIS-042: Transient 409 concurrency lock is NOT cached in processed_messages
+            # to allow subsequent retries with the same messageId once background agent finishes.
             self.session.commit()
             raise err_in_flight
 
@@ -296,16 +288,8 @@ class WorkflowStateMachine:
                 sanitized_command=clean_text,
                 detail=err_step.detail,
             )
-            self._save_processed_message(
-                message_id=message_id,
-                user_id=user.user_id,
-                channel=channel,
-                sanitized_text=clean_text,
-                payload_sha256=payload_hash,
-                task_id=None,
-                status_code=409,
-                response_json={"detail": err_step.detail},
-            )
+            # CR-HIS-042: Transient 409 step conflict is NOT cached in processed_messages
+            # to allow retrying with the same messageId once prerequisite step is approved.
             self.session.commit()
             raise err_step
 

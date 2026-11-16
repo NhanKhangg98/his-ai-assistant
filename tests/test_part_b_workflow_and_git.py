@@ -423,6 +423,118 @@ def test_rbac_role_gate_and_step_jumping_and_idempotency(client: Any, db_session
     assert r_mismatch.json()["detail"]["errorCode"] == "IDEMPOTENCY_PAYLOAD_MISMATCH"
 
 
+def test_transient_409_conflict_not_cached_in_idempotency_allows_retry_after_transition(
+    client: Any, db_session: Session
+) -> None:
+    """Verify CR-HIS-042: HTTP 409 errors (INVALID_STEP_TRANSITION, AGENT_TASK_IN_PROGRESS)
+    are NOT cached in processed_messages, allowing subsequent retries with the same messageId
+    to execute successfully once prerequisites are fulfilled. Audit logs are preserved."""
+    # 1. Story HIS-409 starts at Step 1 (WAITING_APPROVAL)
+    story = WorkflowStory(
+        story_key="HIS-409",
+        title="Test CR-HIS-042 Idempotency Poisoning",
+        current_step=1,
+        step_status="WAITING_APPROVAL",
+    )
+    db_session.add(story)
+    db_session.commit()
+
+    # QC tries Step 2 action '/qc design-test' -> 409 INVALID_STEP_TRANSITION
+    r1 = client.post(
+        "/chat/commands",
+        json={
+            "messageId": "msg-retry-409",
+            "userId": "qc_user",
+            "channel": "his-dev",
+            "text": "/qc design-test HIS-409",
+        },
+    )
+    assert r1.status_code == 409
+    assert r1.json()["detail"]["errorCode"] == "INVALID_STEP_TRANSITION"
+
+    # Verify AC-1: processed_messages MUST NOT contain msg-retry-409
+    pm = db_session.scalar(
+        select(ProcessedMessage).where(ProcessedMessage.message_id == "msg-retry-409")
+    )
+    assert pm is None, "Transient 409 error must not be cached in processed_messages!"
+
+    # Verify Audit Log was recorded
+    audit_entries = db_session.scalars(
+        select(WorkflowAuditLog).where(WorkflowAuditLog.message_id == "msg-retry-409")
+    ).all()
+    assert len(audit_entries) == 1
+    assert audit_entries[0].outcome_status == "REJECTED_STEP"
+
+    # 2. BA approves Step 1 -> Story moves to Step 2 (WAITING_AGENT)
+    r_ba = client.post(
+        "/chat/commands",
+        json={
+            "messageId": "msg-ba-approve-409",
+            "userId": "ba_user",
+            "channel": "his-dev",
+            "text": "/ba approve HIS-409",
+        },
+    )
+    assert r_ba.status_code == 200
+
+    # 3. QC retries Step 2 action with the EXACT SAME messageId ('msg-retry-409')
+    # Because 409 was not cached, this MUST succeed with 202 Accepted, not replayed 409!
+    r2 = client.post(
+        "/chat/commands",
+        json={
+            "messageId": "msg-retry-409",
+            "userId": "qc_user",
+            "channel": "his-dev",
+            "text": "/qc design-test HIS-409",
+        },
+    )
+    assert r2.status_code == 202
+    assert r2.json()["idempotentReplay"] is False
+    assert r2.json()["storyKey"] == "HIS-409"
+    task_id = r2.json()["taskId"]
+
+    # 4. Third invocation with same messageId ('msg-retry-409') now replays 202 Accepted
+    r3 = client.post(
+        "/chat/commands",
+        json={
+            "messageId": "msg-retry-409",
+            "userId": "qc_user",
+            "channel": "his-dev",
+            "text": "/qc design-test HIS-409",
+        },
+    )
+    assert r3.status_code == 202
+    assert r3.json()["idempotentReplay"] is True
+    assert r3.json()["taskId"] == task_id
+
+    # 5. Verify In-Flight Agent Lock (AGENT_TASK_IN_PROGRESS) also does NOT cache 409
+    story_inflight = WorkflowStory(
+        story_key="HIS-410",
+        title="Test In-Flight Lock",
+        current_step=3,
+        step_status="RUNNING_AGENT",
+    )
+    db_session.add(story_inflight)
+    db_session.commit()
+
+    r_inflight = client.post(
+        "/chat/commands",
+        json={
+            "messageId": "msg-inflight-409",
+            "userId": "dev_user",
+            "channel": "his-dev",
+            "text": "/dev plan HIS-410",
+        },
+    )
+    assert r_inflight.status_code == 409
+    assert r_inflight.json()["detail"]["errorCode"] == "AGENT_TASK_IN_PROGRESS"
+
+    pm_inflight = db_session.scalar(
+        select(ProcessedMessage).where(ProcessedMessage.message_id == "msg-inflight-409")
+    )
+    assert pm_inflight is None, "In-flight 409 lock must not be cached in processed_messages!"
+
+
 def test_worker_crash_restart_recovery(client: Any, db_session: Session) -> None:
     """Verify tasks interrupted in RUNNING state are reclaimed and completed after restart."""
     resp = client.post(

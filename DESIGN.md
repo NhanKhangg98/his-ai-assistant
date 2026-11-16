@@ -45,7 +45,7 @@ Hệ thống được thiết kế theo kiến trúc **Modular Monolith kết h�
 
 - **Các quy ước làm rõ những điểm đề bài để mở**:
   1. **Xác thực Role & Khóa In-Flight**: Ánh xạ `userId -> role` qua bảng `users` (`ba_user`, `qc_user`, `dev_user`). Sai Role trả `403 Forbidden`; nhảy cóc bước hoặc gửi lệnh duyệt sớm khi Agent đang chạy nền (`step_status == 'RUNNING_AGENT'`) trả `409 Conflict`.
-  2. **Idempotency theo `messageId` (Stripe-style)**: Lưu `(message_id, payload_sha256, status_code, response_json)` trong `processed_messages`. Gửi lặp cùng `messageId` + cùng payload trả lại nguyên vẹn response/`taskId` cũ (`idempotentReplay=true`); nếu trùng `messageId` nhưng khác payload trả `422 Unprocessable Entity`.
+  2. **Idempotency theo `messageId` (Stripe-style & IETF Transient Eviction)**: Lưu `(message_id, payload_sha256, status_code, response_json)` trong `processed_messages` cho kết quả thành công (`200`/`202`) và lỗi bất biến (`400`/`422`/`403`). Các lỗi xung đột trạng thái tạm thời (`409 Conflict`, in-flight lock) được ghi nhận trong `audit_logs` nhưng **không cache vào `processed_messages`** để hỗ trợ client retry tự nhiên khi Story đã chuyển bước hợp lệ. Trùng `messageId` nhưng khác payload trả `422 Unprocessable Entity`.
   3. **Bảo vệ nhánh cứng & PR Idempotent**: `GitAdapter` không có hàm `merge()`. `_validate_bot_write_branch()` kiểm tra regex `^bot/[A-Za-z0-9._-]+$`, chặn mọi nhánh bảo vệ (`main`, `develop`, `staging`) và refspec (`:`, `..`, `refs/`, `+`, `--force`). Khi lặp vòng `6 -> 3 -> 4`, `create_or_update_pull_request()` cập nhật lại PR `OPEN` hiện hữu từ `bot/<KEY>` vào `develop` thay vì tạo PR trùng.
 
 ## 4. Các Đánh Đổi Kỹ Thuật (Trade-offs)
