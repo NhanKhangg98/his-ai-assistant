@@ -16,6 +16,19 @@ RRF_K = 60
 VALID_ROLES: frozenset[str] = frozenset({"BA", "QC", "Dev"})
 
 
+def normalize_role(role: str) -> str:
+    """Normalize role string to canonical 'BA' | 'QC' | 'Dev' regardless of casing."""
+    cleaned = (role or "").strip()
+    upper = cleaned.upper()
+    if upper == "DEV":
+        return "Dev"
+    if upper == "BA":
+        return "BA"
+    if upper == "QC":
+        return "QC"
+    return cleaned
+
+
 @dataclass(slots=True)
 class SearchResultItem:
     """Single search hit with RRF score, DLP-sanitized content, and source citation."""
@@ -38,9 +51,10 @@ class SearchResultItem:
 
 def resolve_allowed_chunk_types(role: str) -> tuple[str, ...]:
     """Return allowed chunk_type values for RBAC pre-filtering before Top-K."""
-    if role in ("BA", "QC"):
+    norm_role = normalize_role(role)
+    if norm_role in ("BA", "QC"):
         return ("doc", "code_map")
-    if role == "Dev":
+    if norm_role == "Dev":
         return ("doc", "code_map", "source_code")
     raise ValueError(f"Unsupported role for RBAC search: {role!r}")
 
@@ -53,17 +67,18 @@ class HybridSearchService:
 
     def resolve_user_role(self, user_id: str | None, explicit_role: str | None) -> str:
         """Resolve and validate role from users table or explicit role parameter."""
+        norm_explicit = normalize_role(explicit_role) if explicit_role else None
         if user_id:
             user = self.session.scalar(select(User).where(User.user_id == user_id))
             if user is not None:
-                if explicit_role and explicit_role != user.role:
+                if norm_explicit and norm_explicit != user.role:
                     raise PermissionError(
                         f"User '{user_id}' has role '{user.role}', "
                         f"cannot impersonate '{explicit_role}'."
                     )
                 return user.role
-        if explicit_role in VALID_ROLES:
-            return explicit_role
+        if norm_explicit in VALID_ROLES:
+            return norm_explicit
         raise ValueError(
             f"Invalid or unknown user/role: user_id={user_id!r}, role={explicit_role!r}"
         )
