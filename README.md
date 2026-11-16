@@ -95,25 +95,36 @@ Khi khởi chạy, container `app` tự động:
 
 ## 4. Chạy Trực Tiếp Trên Máy Local & Sử Dụng CLI `his-kb`
 
+> [!TIP]
+> **Tùy chọn Cơ sở dữ liệu khi chạy Local:**
+> - Nếu máy **chưa bật Docker/PostgreSQL**: Hãy đặt biến môi trường sang SQLite nhẹ `export DATABASE_URL="sqlite:///his_local.db"` (PowerShell: `$env:DATABASE_URL="sqlite:///his_local.db"`). Lệnh sẽ chạy ngay lập tức mà không cần cài đặt DB ngoài.
+> - Nếu máy **đã có PostgreSQL 16 + pgvector**: Để mặc định hoặc trỏ `DATABASE_URL` tới cụm PostgreSQL của bạn.
+
 ```bash
 # 1. Cài đặt dependencies vào virtualenv
 pip install -e ".[dev]"
 
-# 2. Khởi tạo dữ liệu mẫu nhánh staging và chạy migration
+# 2. (Khuyên dùng khi chạy local không có PostgreSQL) Thiết lập SQLite
+# Trên Linux/macOS:
+export DATABASE_URL="sqlite:///his_local.db"
+# Trên Windows PowerShell:
+$env:DATABASE_URL="sqlite:///his_local.db"
+
+# 3. Khởi tạo dữ liệu mẫu nhánh staging và chạy migration
 python -m sample_data.init_sample_repo
 alembic upgrade head
 
-# 3. Nạp kiến thức tăng dần từ nhánh staging
+# 4. Nạp kiến thức tăng dần từ nhánh staging (chỉ mất ~1.5 giây)
 python -m app.cli ingest --repo-path ./sample_data/his_staging --branch staging
 
-# 4. Xem trạng thái kho kiến thức (commit SHA nhánh staging, số chunk, thống kê DLP)
+# 5. Xem trạng thái kho kiến thức (commit SHA nhánh staging, số chunk, thống kê DLP)
 python -m app.cli status
 
-# 5. Tra cứu theo Role (BA/QC chỉ thấy doc + code_map; Dev thấy thêm source_code)
+# 6. Tra cứu theo Role (BA/QC chỉ thấy doc + code_map; Dev thấy thêm source_code)
 python -m app.cli search "kiểm tra thông tuyến thẻ BHYT 5 năm liên tục" --role BA
 python -m app.cli search "RegisterOutpatientBhytAsync FiveYearContinuousDate" --role Dev
 
-# 6. Chạy đánh giá Recall@5 trên bộ 10 câu hỏi chuẩn
+# 7. Chạy đánh giá Recall@5 trên bộ 10 câu hỏi chuẩn
 python -m app.cli eval --dataset ./sample_data/eval_questions.json --k 5
 ```
 
