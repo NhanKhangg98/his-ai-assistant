@@ -91,6 +91,7 @@ class HybridSearchService:
         his_module: str | None = None,
     ) -> dict[str, Any]:
         """Run Hybrid Search with strict RBAC pre-filtering before ranking and Top-K slicing."""
+        role = normalize_role(role)
         clean_query = AllBoundaryDLP.sanitize_text(query.strip())
         allowed_types = resolve_allowed_chunk_types(role)
         top_k = max(1, min(top_k, 20))

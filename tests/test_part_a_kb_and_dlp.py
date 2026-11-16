@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 from typing import Any
 
+import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from typer.testing import CliRunner
@@ -26,7 +28,7 @@ from app.db.models import (
 from app.kb.code_chunker import CodeChunker, _split_oversized_code_chunk, should_ignore_path
 from app.kb.eval_service import EvalService
 from app.kb.ingest_service import IncrementalIngestService
-from app.kb.search_service import HybridSearchService
+from app.kb.search_service import HybridSearchService, normalize_role
 from app.security.dlp import AllBoundaryDLP
 from app.security.log_filter import SanitizingLogFilter, install_global_log_sanitizer
 from sample_data.init_sample_repo import (
@@ -532,3 +534,24 @@ def test_independent_natural_vietnamese_queries_strict_recall_at_5(
         f"Natural query Recall@5={report['recall_at_5']}: {report['details']}"
     )
     assert report["passed"] is True
+
+
+def test_role_casing_insensitivity_and_cli_fuzzing(db_session: Session) -> None:
+    """Verify that CLI and Service accept any casing for roles (DEV, dev, Dev, BA, ba, QC, qc)."""
+    IncrementalIngestService(db_session).ingest_repository(
+        "./sample_data/his_staging", branch="staging"
+    )
+    runner = CliRunner()
+
+    # 1. Test CLI with ALL-CAPS, lowercase, mixed-case, and whitespace padding
+    for r in ("DEV", "dev", "Dev", "dEv", "  DEV  ", "BA", "ba", "Ba", "QC", "qc", "Qc"):
+        res = runner.invoke(cli_app, ["search", "thông tuyến BHYT 5 năm liên tục", "--role", r])
+        assert res.exit_code == 0, f"CLI search failed for role={r!r}: {res.stdout}"
+        data = json.loads(res.stdout)
+        expected_norm = normalize_role(r)
+        assert data["role"] == expected_norm
+
+    # 2. Verify truly unsupported role properly raises ValueError
+    svc = HybridSearchService(db_session)
+    with pytest.raises(ValueError, match="Unsupported role"):
+        svc.search(query="test", role="INVALID_ROLE")
