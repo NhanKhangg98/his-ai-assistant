@@ -173,3 +173,23 @@ pytest -v
   - Thiết kế cơ chế **RBAC Pre-Filtering trước khi cắt Top-K** trong `app/kb/search_service.py` để đảm bảo `BA`/`QC` không bao giờ bị lộ `source_code` hoặc bị hụt kết quả.
   - Thiết kế hàm bảo vệ nhánh `_validate_bot_write_branch()` trong `app/adapters/git_adapter.py` chống lại 10 vector tấn công refspec/path traversal và Prompt Injection từ nội dung ticket Jira.
   - Thiết kế khóa trạng thái in-flight `RUNNING_AGENT` và cơ chế Lease/Reclaim trong `app/workflow/worker.py`.
+
+---
+
+## 8. Đề Xuất Lộ Trình Nâng Cấp (Production Roadmap) & Tư Duy AI-Native
+
+> [!NOTE]
+> Hệ thống hiện tại đáp ứng trọn vẹn tiêu chuẩn **Safety-First & Deterministic Baseline** bắt buộc cho môi trường Y tế (HIS). Để sẵn sàng cho quy mô doanh nghiệp lớn hơn, tác giả đề xuất lộ trình mở rộng kỹ thuật và khung chuyển dịch tổ chức.
+
+- **Về Kiến trúc & Kỹ thuật**:
+  1. *Graduated Autonomy (L0–L5)*: Mở rộng ủy quyền L3/L4 cho tác vụ an toàn (Docs/UI); giữ L2 cho Core Billing & Dược.
+  2. *Fail-Fast Short-Circuit*: Kiểm tra cú pháp AC từ cửa intake (< 5ms) và Circuit Breaker ngắt mạch sau 3 lần loop bug.
+  3. *Ground-Truth Review*: Tách luồng review độc lập, đối chiếu trực tiếp Jira AC thô với Git Unified Diff (chống thiên kiến).
+  4. *Stateless Skill-Mesh*: Tách logic thành các Skill rời rạc, bảo vệ dữ liệu y tế bằng Zero-Trust DLP Layer.
+- **Về Chuyển dịch Đội ngũ (4 Trụ cột AI-Native)**:
+  - *Định vị*: AI là **Bộ giáp trợ lực (Exoskeleton)**, con người là **Chốt chặn trách nhiệm duy nhất (Single Point of Accountability)**. Kỹ sư chịu trách nhiệm pháp lý trước từng dòng code, cấm đổ lỗi cho AI.
+  - *Giải quyết 3 nỗi đau*: Xóa bỏ tâm lý sợ mất việc, triệt tiêu thói quen "bấm nút sinh rác không đọc diff", và xây dựng Harness vững chắc để kỹ sư không mất niềm tin khi AI gặp ca khó.
+  - *Chuyển dịch Mindset*: Dev chuyển từ *Gõ code (Typist)* sang *Kỹ sư Rào chắn (Harness Engineer)*; BA chuyển từ *Gõ Word văn xuôi* sang *Kỹ sư Đặc tả Ranh giới & Bất biến (Boundary Extractor)*.
+
+👉 **Xem toàn văn phân tích kỹ thuật và lộ trình thực thi tại**: [`IMPROVEMENTS_AND_AI_ROADMAP.md`](./IMPROVEMENTS_AND_AI_ROADMAP.md)
+
