@@ -453,9 +453,23 @@ def _run_git(repo_dir: Path, args: list[str]) -> str:
 def ensure_sample_git_repo(repo_path: str | Path, force_recreate: bool = False) -> str:
     """Idempotently initialize HIS 315 sample staging repo with main/develop/staging branches."""
     repo_dir = Path(repo_path).resolve()
-    staging_ref = repo_dir / ".git" / "refs" / "heads" / "staging"
-    if staging_ref.exists() and not force_recreate:
-        return _run_git(repo_dir, ["rev-parse", "refs/heads/staging"])
+    git_dir = repo_dir / ".git"
+
+    # If git repo exists and staging branch is verified (loose or packed ref), return clean SHA
+    if git_dir.exists() and not force_recreate:
+        try:
+            res = subprocess.run(
+                ["git", "rev-parse", "--verify", "refs/heads/staging"],
+                cwd=str(repo_dir),
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            sha = res.stdout.strip()
+            if res.returncode == 0 and len(sha) == 40:
+                return sha
+        except Exception:
+            pass
 
     repo_dir.mkdir(parents=True, exist_ok=True)
     _write_markdown_docs(repo_dir)
@@ -463,7 +477,6 @@ def ensure_sample_git_repo(repo_path: str | Path, force_recreate: bool = False) 
     _write_pdf_docs(repo_dir)
     _write_source_code(repo_dir)
 
-    git_dir = repo_dir / ".git"
     if not git_dir.exists():
         _run_git(repo_dir, ["init", "-b", "main"])
         _run_git(repo_dir, ["config", "user.name", "HIS 315 Bot"])

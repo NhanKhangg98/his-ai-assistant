@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import dataclass
 from typing import Any
 
@@ -216,21 +217,67 @@ TECHNICAL_PROPER_NOUN_WHITELIST: frozenset[str] = frozenset(
         "thai binh",
         "lâm đồng",
         "lam dong",
+        # Medical & domain proper nouns to prevent false positives
+        "cao huyết áp",
+        "cao huyet ap",
+        "tăng huyết áp",
+        "tang huyet ap",
+        "huyết áp",
+        "huyet ap",
+        "danh mục thuốc",
+        "danh muc thuoc",
+        "danh mục",
+        "danh muc",
+        "chu trình khám bệnh",
+        "chu trinh kham benh",
+        "chu trình",
+        "chu trinh",
+        "lâm sàng nội tổng quát",
+        "lâm sàng nội tổng",
+        "lâm sàng",
+        "lam sang",
+        "cận lâm sàng",
+        "can lam sang",
+        "văn phòng đại diện",
+        "văn phòng",
+        "van phong",
+        "phạm vi áp dụng",
+        "pham vi ap dung",
+        "từ chối thanh toán",
+        "tu choi thanh toan",
+        "chu kỳ kinh nguyệt",
+        "chu kỳ",
+        "chu ky",
+        "hoàng gia",
+        "lê lợi",
+        "le loi",
+        "quang trung",
+        "trần hưng đạo",
+        "tran hung dao",
+        "đường nguyễn huệ",
+        "nguyễn huệ",
+        "phan thiết",
+        "phan rang",
+        "ninh bình",
+        "ninh binh",
     }
 )
 
 # Layer 3 Gazetteer of known test/sample patient names (case-insensitive)
-PATIENT_NAME_GAZETTEER: tuple[str, ...] = (
-    "Nguyễn Văn An",
-    "Nguyen Van An",
-    "Trần Thị Bích Ngọc",
-    "Tran Thi Bich Ngoc",
-    "Lê Minh Tuấn",
-    "Le Minh Tuan",
-    "Phạm Quốc Bảo",
-    "Pham Quoc Bao",
-    "Hoàng Thu Trang",
-    "Hoang Thu Trang",
+PATIENT_NAME_GAZETTEER: tuple[str, ...] = tuple(
+    unicodedata.normalize("NFC", name)
+    for name in (
+        "Nguyễn Văn An",
+        "Nguyen Van An",
+        "Trần Thị Bích Ngọc",
+        "Tran Thi Bich Ngoc",
+        "Lê Minh Tuấn",
+        "Le Minh Tuan",
+        "Phạm Quốc Bảo",
+        "Pham Quoc Bao",
+        "Hoàng Thu Trang",
+        "Hoang Thu Trang",
+    )
 )
 
 # Secret regexes
@@ -238,7 +285,7 @@ PRIVATE_KEY_RE = re.compile(
     r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z0-9 ]*PRIVATE KEY-----"
 )
 CONN_STRING_RE = re.compile(
-    r"(?i)(?:Server|Data Source|Host)\s*=\s*[^;\s\"']+;[^\"'\n]*?"
+    r"(?i)(?:Server|Data Source|Host)\s*=\s*[^;\s\"']+;(?:[^;\n]*?;){0,10}"
     r"(?:Password|Pwd)\s*=\s*[^;\s\"']+;?"
 )
 DB_URI_SECRET_RE = re.compile(
@@ -250,17 +297,21 @@ API_TOKEN_RE = re.compile(
 )
 BEARER_TOKEN_RE = re.compile(r"(?i)\bBearer\s+[A-Za-z0-9\-._~+/]{12,}=*")
 KV_SECRET_RE = re.compile(
-    r"(?i)\b(api[_-]?key|secret[_-]?key|password|passwd|client[_-]?secret|access[_-]?token)"
-    r"(?:(\s*[:=]\s*[\"'])([^\"'\r\n]{6,})([\"'])|(\s*[:=]\s*)([A-Za-z0-9@#$%^&*!._\-~+/=?]{6,}))"
+    r"(?i)\b(api[_-]?key|secret[_-]?key|password|passwd|pwd|db[_-]?password|"
+    r"database[_-]?password|client[_-]?secret|access[_-]?token|auth[_-]?token|mật[ _-]?khẩu)"
+    r"(?:(\s*[:=]\s*[\"'])([^\"'\r\n]+)([\"'])|(\s*[:=]\s*)([A-Za-z0-9@#$%^&*!._\-~+/=?]{3,}))"
 )
 
 # PII regexes (supporting contiguous and hyphen/dot/space-separated formats)
 BHYT_CARD_RE = re.compile(
-    r"\b(?:DN|HX|CH|NN|TK|HC|XK|HT|TB|NO|CT|XB|TN|CS|QN|CA|CY|XN|MS|CC|CK|CB|KC|HD|"
+    r"(?i)\b(?:DN|HX|CH|NN|TK|HC|XK|HT|TB|NO|CT|XB|TN|CS|QN|CA|CY|XN|MS|CC|CK|CB|KC|HD|"
     r"TE|BT|HN|DT|DK|XD|TS|TC|TQ|TA|TY|HG|LS|CN|HS|SV|GB|GD|PV)"
     r"[\s\-]?[1-5](?:[\s\-]?\d){12}\b"
 )
-CCCD_RE = re.compile(r"\b0\d{11}\b")
+CCCD_RE = re.compile(r"\b0\d{2}[\s.\-]?\d{3}[\s.\-]?\d{3}[\s.\-]?\d{3}\b|\b0\d{11}\b")
+CMND_RE = re.compile(
+    r"(?i)(?:(?:\bCMND\b|\bCMT\b|chứng minh nhân dân|số cmnd)\s*[:=\-]?\s*)?\b[0-3]\d{8}\b"
+)
 VN_PHONE_RE = re.compile(
     r"(?<!\d)(?:\+?84|0)[\s.\-]?(?:3[2-9]|5[2689]|7[06-9]|8[1-9]|9[0-9])"
     r"(?:[\s.\-]?\d){7}(?!\d)"
@@ -278,12 +329,19 @@ _VN_LOWER_CHARS = "a-zàáạảãâầấậẩẫăằắặẳẵèéẹẻ�
 _VN_TITLE_WORD = rf"[{_VN_UPPER_CHARS}][{_VN_LOWER_CHARS}]+"
 _VN_ALLCAPS_WORD = rf"[{_VN_UPPER_CHARS}]{{2,7}}"
 _VN_CAP_WORD = rf"(?:{_VN_TITLE_WORD}|{_VN_ALLCAPS_WORD})"
+_VN_ANY_WORD = rf"[{_VN_UPPER_CHARS}{_VN_LOWER_CHARS}]{{2,10}}"
 
-# Layer 1: Contextual patient label followed by 2-4 Title-Case or ALL-CAPS words
+# Layer 1: Contextual patient label followed by:
+# 1) Delimited label (with colon/dash) followed by 2-4 words of any casing
+# 2) Space-separated label followed strictly by Title-Case / ALL-CAPS words
 CONTEXTUAL_NAME_RE = re.compile(
-    rf"(?P<prefix>(?:[Bb]ệnh nhân|[Bb][Nn]|[Hh]ọ và tên|[Hh]ọ tên|[Tt]ên bệnh nhân|"
-    rf"[Ss]ản phụ|[Nn]hi đồng|patient[_ ]?name|full[_ ]?name)\s*[:=\-]?\s*)"
-    rf"(?P<name>{_VN_CAP_WORD}(?:\s+{_VN_CAP_WORD}){{1,3}})"
+    rf"(?P<prefix_delim>(?:[Bb]ệnh\s+nhân|[Bb][Nn]|[Hh]ọ\s+(?:và\s+)?tên|[Tt]ên\s+bệnh\s+nhân|"
+    rf"[Ss]ản\s+phụ|[Nn]hi\s+đồng|patient[_ ]?name|full[_ ]?name)\s*[:=\-]\s*)"
+    rf"(?P<name_delim>{_VN_ANY_WORD}(?:\s+{_VN_ANY_WORD}){{1,3}})"
+    rf"|"
+    rf"(?P<prefix_cap>(?:[Bb]ệnh\s+nhân|[Bb][Nn]|[Hh]ọ\s+(?:và\s+)?tên|[Tt]ên\s+bệnh\s+nhân|"
+    rf"[Ss]ản\s+phụ|[Nn]hi\s+đồng|patient[_ ]?name|full[_ ]?name)\s+)"
+    rf"(?P<name_cap>{_VN_CAP_WORD}(?:\s+{_VN_CAP_WORD}){{1,3}})"
 )
 
 # Layer 2: Unlabeled free-text Vietnamese full name (Title-Case or ALL-CAPS)
@@ -325,7 +383,8 @@ class AllBoundaryDLP:
         if not raw_text:
             return SanitizeResult(text=raw_text, secrets_redacted=0, pii_masked=0)
 
-        text = raw_text
+        # Normalize Unicode to NFC to prevent decomposed NFD bypasses
+        text = unicodedata.normalize("NFC", raw_text)
         secrets_count = 0
         pii_count = 0
 
@@ -357,10 +416,11 @@ class AllBoundaryDLP:
 
         text = KV_SECRET_RE.sub(_replace_kv_secret, text)
 
-        # 2. Mask Structured Patient PII (BHYT, CCCD, Phone, Email, DOB, MRN)
+        # 2. Mask Structured Patient PII (BHYT, CCCD, CMND, Phone, Email, DOB, MRN)
         for pii_re, token in (
             (BHYT_CARD_RE, "[MASKED_BHYT]"),
             (CCCD_RE, "[MASKED_CCCD]"),
+            (CMND_RE, "[MASKED_CCCD]"),
             (VN_PHONE_RE, "[MASKED_PHONE]"),
             (EMAIL_RE, "[MASKED_EMAIL]"),
             (DOB_RE, "[MASKED_DOB]"),
@@ -379,11 +439,13 @@ class AllBoundaryDLP:
         # Layer 1 Contextual labels
         def _replace_ctx_name(match: re.Match[str]) -> str:
             nonlocal pii_count
-            candidate = match.group("name").strip()
+            name = match.group("name_delim") or match.group("name_cap") or ""
+            prefix = match.group("prefix_delim") or match.group("prefix_cap") or ""
+            candidate = name.strip()
             if candidate.lower() in TECHNICAL_PROPER_NOUN_WHITELIST:
                 return match.group(0)
             pii_count += 1
-            return f"{match.group('prefix')}[MASKED_PATIENT_NAME]"
+            return f"{prefix}[MASKED_PATIENT_NAME]"
 
         text = CONTEXTUAL_NAME_RE.sub(_replace_ctx_name, text)
 

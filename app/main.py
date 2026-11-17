@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Query
@@ -46,7 +47,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Initialize DB, sample staging repo, and start DurableAsyncioWorker on startup."""
     install_global_log_sanitizer()
     settings = get_settings()
-    ensure_sample_git_repo(settings.his_repo_path)
+    repo_p = Path(settings.his_repo_path).resolve()
+    if not (repo_p / ".git").exists():
+        ensure_sample_git_repo(repo_p)
     init_db(settings.database_url)
     worker = get_worker()
     worker.database_url = settings.database_url

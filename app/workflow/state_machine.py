@@ -7,6 +7,7 @@ import json
 from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.adapters.discord_adapter import MockDiscordAdapter, get_discord_adapter
@@ -138,19 +139,55 @@ class WorkflowStateMachine:
         if self.session.bind is not None and self.session.bind.dialect.name == "postgresql":
             stmt = stmt.with_for_update()
         story = self.session.scalar(stmt)
-        if story is None:
-            issue = self.jira_adapter.get_issue(story_key)
-            story = WorkflowStory(
-                story_key=story_key,
-                title=issue.summary,
-                current_step=1,
-                step_status="WAITING_AGENT",
-                loop_count=0,
-                artifacts_json={},
-            )
-            self.session.add(story)
-            self.session.flush()
+        if story is not None:
+            return story
+
+        issue = self.jira_adapter.get_issue(story_key)
+        story = WorkflowStory(
+            story_key=story_key,
+            title=issue.summary,
+            current_step=1,
+            step_status="WAITING_AGENT",
+            loop_count=0,
+            artifacts_json={},
+        )
+        try:
+            with self.session.begin_nested():
+                self.session.add(story)
+                self.session.flush()
+        except IntegrityError:
+            # Concurrent race creating the same story: re-query with lock
+            stmt = select(WorkflowStory).where(WorkflowStory.story_key == story_key)
+            if self.session.bind is not None and self.session.bind.dialect.name == "postgresql":
+                stmt = stmt.with_for_update()
+            story = self.session.scalar(stmt)
+            if story is None:
+                raise
         return story
+
+    def _commit_or_replay_idempotent(
+        self,
+        message_id: str,
+        payload_hash: str,
+        status_code: int,
+        response_payload: dict[str, Any],
+    ) -> tuple[int, dict[str, Any]]:
+        """Commit transaction or gracefully recover on concurrent idempotency collision."""
+        try:
+            self.session.commit()
+            return status_code, response_payload
+        except IntegrityError as err:
+            self.session.rollback()
+            existing_msg = self.session.scalar(
+                select(ProcessedMessage).where(ProcessedMessage.message_id == message_id)
+            )
+            if existing_msg is not None:
+                if existing_msg.payload_sha256 != payload_hash:
+                    raise IdempotencyPayloadMismatchError(message_id) from err
+                replay_payload = dict(existing_msg.response_json)
+                replay_payload["idempotentReplay"] = True
+                return existing_msg.status_code, replay_payload
+            raise
 
     def _resolve_user(self, user_id: str) -> User:
         user = self.session.scalar(select(User).where(User.user_id == user_id))
@@ -349,16 +386,18 @@ class WorkflowStateMachine:
                 status_code=200,
                 response_json=response_payload,
             )
-            self.session.commit()
+            return_status, return_payload = self._commit_or_replay_idempotent(
+                message_id, payload_hash, 200, response_payload
+            )
 
             self.discord_adapter.send_channel_message(
                 channel=channel,
-                content=response_payload["message"],
+                content=return_payload.get("message", response_payload["message"]),
                 mentions=[f"@{parsed.spec.next_role_mention}"],
                 story_key=story.story_key,
                 step=story.current_step,
             )
-            return 200, response_payload
+            return return_status, return_payload
 
         # 5B. Handle Asynchronous Agent Commands (202 Accepted + Durable Task Queue)
         previous_step_status = story.step_status
@@ -420,8 +459,7 @@ class WorkflowStateMachine:
             status_code=202,
             response_json=async_response,
         )
-        self.session.commit()
-        return 202, async_response
+        return self._commit_or_replay_idempotent(message_id, payload_hash, 202, async_response)
 
     def _save_processed_message(
         self,

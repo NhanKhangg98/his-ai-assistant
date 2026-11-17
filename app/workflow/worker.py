@@ -54,10 +54,23 @@ class DurableAsyncioWorker:
         self._bg_task: asyncio.Task[None] | None = None
 
     def recover_interrupted_tasks(self, force_reclaim_running: bool = True) -> int:
-        """Reclaim tasks left in RUNNING state (after service crash/restart) back to PENDING."""
+        """Reclaim expired or orphaned tasks left in RUNNING state back to PENDING (or FAILED)."""
         now = utc_now()
         reclaimed = 0
         with session_scope(self.database_url) as session:
+            # 1. Dead-letter poison tasks (attempts >= max_attempts) left in RUNNING
+            poison_stmt = select(BackgroundTask).where(
+                BackgroundTask.status == "RUNNING",
+                BackgroundTask.attempts >= BackgroundTask.max_attempts,
+            )
+            poison_tasks = session.scalars(poison_stmt).all()
+            for pt in poison_tasks:
+                pt.status = "FAILED"
+                pt.error_message = "Task exceeded max retry attempts (dead lettered on recovery)."
+                pt.lease_expires_at = None
+                pt.updated_at = now
+
+            # 2. Reclaimable tasks under max_attempts
             stmt = select(BackgroundTask).where(
                 BackgroundTask.status == "RUNNING",
                 BackgroundTask.attempts < BackgroundTask.max_attempts,
@@ -78,10 +91,12 @@ class DurableAsyncioWorker:
         return reclaimed
 
     def process_next_task(self, llm_router_override: LLMRouter | None = None) -> str | None:
-        """Claim and execute a single eligible task using SELECT FOR UPDATE SKIP LOCKED."""
+        """Claim and execute a single eligible task using a two-phase durable transaction."""
         now = utc_now()
         lease_until = now + timedelta(seconds=self.settings.worker_lease_seconds)
+        claimed_task_id: str | None = None
 
+        # Phase 1: Short atomic transaction to claim task and increment attempts
         with session_scope(self.database_url) as session:
             stmt = (
                 select(BackgroundTask)
@@ -112,10 +127,20 @@ class DurableAsyncioWorker:
             task.attempts += 1
             task.lease_expires_at = lease_until
             task.updated_at = now
-            session.flush()
+            claimed_task_id = task.id
 
-            self._execute_claimed_task(session, task, llm_router_override=llm_router_override)
-            return task.id
+        if claimed_task_id is None:
+            return None
+
+        # Phase 2: Execute claimed task in its own transaction
+        with session_scope(self.database_url) as session:
+            task = session.scalar(
+                select(BackgroundTask).where(BackgroundTask.id == claimed_task_id)
+            )
+            if task is not None:
+                self._execute_claimed_task(session, task, llm_router_override=llm_router_override)
+
+        return claimed_task_id
 
     def drain_pending_tasks(
         self, max_tasks: int = 50, llm_router_override: LLMRouter | None = None
@@ -294,13 +319,13 @@ class DurableAsyncioWorker:
             story.updated_at = utc_now()
 
     async def run_forever(self) -> None:
-        """Background loop polling for pending tasks until stop() is called."""
+        """Background loop polling for pending tasks off-thread until stop() is called."""
         if self._stop_event is None:
             self._stop_event = asyncio.Event()
-        self.recover_interrupted_tasks(force_reclaim_running=True)
+        self.recover_interrupted_tasks(force_reclaim_running=False)
         while not self._stop_event.is_set():
             try:
-                processed = self.process_next_task()
+                processed = await asyncio.to_thread(self.process_next_task)
                 if processed is not None:
                     await asyncio.sleep(0)
                     continue

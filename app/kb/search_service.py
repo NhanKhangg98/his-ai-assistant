@@ -66,7 +66,7 @@ class HybridSearchService:
         self.session = session
 
     def resolve_user_role(self, user_id: str | None, explicit_role: str | None) -> str:
-        """Resolve and validate role from users table or explicit role parameter."""
+        """Resolve and validate role from users table. Never trust unauthenticated Dev role."""
         norm_explicit = normalize_role(explicit_role) if explicit_role else None
         if user_id:
             user = self.session.scalar(select(User).where(User.user_id == user_id))
@@ -77,8 +77,18 @@ class HybridSearchService:
                         f"cannot impersonate '{explicit_role}'."
                     )
                 return user.role
-        if norm_explicit in VALID_ROLES:
+            raise PermissionError(f"User '{user_id}' not found in authorization directory.")
+
+        # Anonymous caller (user_id not provided)
+        # Prevent privilege escalation: Anonymous clients MUST NOT access 'Dev' (source_code)
+        if norm_explicit == "Dev":
+            raise PermissionError(
+                "Access to 'Dev' role and source code requires authenticated userId."
+            )
+        if norm_explicit in ("BA", "QC"):
             return norm_explicit
+        if norm_explicit is None:
+            return "BA"
         raise ValueError(
             f"Invalid or unknown user/role: user_id={user_id!r}, role={explicit_role!r}"
         )

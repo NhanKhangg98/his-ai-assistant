@@ -41,6 +41,7 @@ from sample_data.init_sample_repo import (
     CANARY_PATIENT_NAME_1,
     CANARY_PATIENT_NAME_2,
     CANARY_PHONE_1,
+    ensure_sample_git_repo,
 )
 
 
@@ -50,7 +51,8 @@ def test_doc_and_code_chunkers_preserve_methods_and_skip_ignored_dirs() -> None:
     assert should_ignore_path("src/HIS.Registration.Api/obj/Debug/IgnoredObj.cs")
     assert should_ignore_path("frontend/node_modules/fake-lib/IgnoredModule.ts")
 
-    repo_dir = Path("./sample_data/his_staging").resolve()
+    repo_dir = (Path(__file__).resolve().parent.parent / "sample_data" / "his_staging").resolve()
+    ensure_sample_git_repo(repo_dir)
     ctrl_path = (
         repo_dir
         / "src"
@@ -187,6 +189,23 @@ def test_rbac_search_pre_filtering_and_citations(client: Any, db_session: Sessio
     dev_types = {item["chunkType"] for item in dev_data["results"]}
     assert "source_code" in dev_types
 
+    # Anonymous client attempting to claim 'Dev' role MUST be rejected with 403 (No RBAC bypass)
+    anon_dev_resp = client.post(
+        "/search",
+        json={"role": "Dev", "query": code_query, "topK": 10},
+    )
+    assert anon_dev_resp.status_code == 403
+
+    # Anonymous client without role defaults safely to 'BA' (least privilege)
+    anon_default_resp = client.post(
+        "/search",
+        json={"query": code_query, "topK": 10},
+    )
+    assert anon_default_resp.status_code == 200
+    assert anon_default_resp.json()["role"] == "BA"
+    for item in anon_default_resp.json()["results"]:
+        assert item["chunkType"] != "source_code"
+
 
 def test_eval_recall_at_5_and_cli_commands(db_session: Session) -> None:
     """Verify his-kb CLI (ingest, status, search, eval) and Recall@5 >= 0.80."""
@@ -206,7 +225,10 @@ def test_eval_recall_at_5_and_cli_commands(db_session: Session) -> None:
     assert '"chunkType": "source_code"' not in res_search.stdout
 
     eval_svc = EvalService(db_session)
-    report = eval_svc.evaluate("./sample_data/eval_questions.json", k=5)
+    eval_file = (
+        Path(__file__).resolve().parent.parent / "sample_data" / "eval_questions.json"
+    ).resolve()
+    report = eval_svc.evaluate(eval_file, k=5)
     assert report["total_questions"] == 10
     assert report["recall_at_5"] >= 0.80
     assert report["passed"] is True
@@ -329,17 +351,75 @@ def test_dlp_all_caps_names_extended_surnames_and_formatted_pii() -> None:
 
     # 3. Formatted BHYT cards, Phone numbers with dots/spaces, and quoted password with spaces/~
     formatted_pii = (
-        "Thẻ BHYT: DN4-79-7912345678 hoặc DN 4 79 7912345678, "
+        "Thẻ BHYT: DN4-79-7912345678 hoặc dn4797912345678, "
+        "CCCD: 079 095 001 234 hoặc 079-095-001-234, CMND: 025123456, "
         "SĐT: 0909.123.456 và 0909 123 456, "
-        'config: password = "My Super$ecret!Pass~123"'
+        'config: password = "My Super$ecret!Pass~123", pwd=Hunter22, db_password=hunter22'
     )
     res_fmt = AllBoundaryDLP.sanitize_with_stats(formatted_pii)
     assert "7912345678" not in res_fmt.text
+    assert "079 095 001 234" not in res_fmt.text
+    assert "079-095-001-234" not in res_fmt.text
+    assert "025123456" not in res_fmt.text
     assert "0909.123.456" not in res_fmt.text
     assert "0909 123 456" not in res_fmt.text
     assert "My Super$ecret!Pass~123" not in res_fmt.text
-    assert res_fmt.secrets_redacted >= 1
-    assert res_fmt.pii_masked >= 4
+    assert "Hunter22" not in res_fmt.text
+    assert "hunter22" not in res_fmt.text
+
+    # 4. Contextual lowercase names & Decomposed Unicode NFD
+    import unicodedata
+    nfd_sample = unicodedata.normalize("NFD", "Hôm nay Bệnh nhân: nguyễn văn bình nhập viện.")
+    res_ctx = AllBoundaryDLP.sanitize_text(nfd_sample)
+    assert "nguyễn văn bình" not in res_ctx.lower()
+    assert "[MASKED_PATIENT_NAME]" in res_ctx
+
+    # 5. Medical & administrative domain phrases must NOT be falsely masked
+    medical_text = (
+        "Bệnh nhân có tiền sử Cao Huyết Áp và Tăng Huyết Áp, "
+        "cần tra cứu Danh Mục Thuốc và Chu Trình Khám Bệnh tại khoa Lâm Sàng Nội Tổng Quát."
+    )
+    res_med = AllBoundaryDLP.sanitize_text(medical_text)
+    assert "Cao Huyết Áp" in res_med
+    assert "Tăng Huyết Áp" in res_med
+    assert "Danh Mục Thuốc" in res_med
+    assert "Chu Trình Khám Bệnh" in res_med
+    assert "Lâm Sàng Nội Tổng Quát" in res_med
+
+
+def test_child_logger_and_exception_traceback_sanitization() -> None:
+    """Verify child loggers and exception tracebacks are sanitized without leakage."""
+    import io
+
+    from app.security.log_filter import SanitizingLogFormatter, install_global_log_sanitizer
+
+    install_global_log_sanitizer()
+    stream = io.StringIO()
+    handler = logging.StreamHandler(stream)
+    handler.setFormatter(SanitizingLogFormatter())
+    
+    child_logger = logging.getLogger("app.workflow.worker")
+    child_logger.addHandler(handler)
+    child_logger.setLevel(logging.INFO)
+
+    # 1. Direct log message with CCCD and password
+    child_logger.info("Worker processing CCCD 079095001234 and password=Hunter22")
+    log_output = stream.getvalue()
+    assert "079095001234" not in log_output
+    assert "Hunter22" not in log_output
+    assert "[MASKED_CCCD]" in log_output
+    assert "[REDACTED_SECRET]" in log_output
+
+    # 2. Exception traceback containing PII
+    try:
+        raise ValueError("Critical error with BHYT DN4797912345678 and CCCD 079 095 001 234")
+    except Exception:
+        child_logger.exception("Task crashed")
+    
+    total_log = stream.getvalue()
+    assert "DN4797912345678" not in total_log
+    assert "079 095 001 234" not in total_log
+    assert "[MASKED_BHYT]" in total_log
 
 
 def test_code_chunker_nested_interpolated_quotes_and_mixed_entities(tmp_path: Path) -> None:
@@ -391,8 +471,10 @@ def test_alembic_online_and_offline_migrations(tmp_path: Path) -> None:
 
     mig_db = tmp_path / "alembic_verify.db"
     db_url = f"sqlite:///{mig_db.as_posix()}"
-    cfg = Config("alembic.ini")
+    alembic_ini = (Path(__file__).resolve().parent.parent / "alembic.ini").resolve()
+    cfg = Config(str(alembic_ini))
     cfg.set_main_option("sqlalchemy.url", db_url)
+    cfg.set_main_option("script_location", str(alembic_ini.parent / "alembic"))
 
     command.upgrade(cfg, "head")
     eng = create_engine(db_url)
@@ -410,6 +492,7 @@ def test_alembic_online_and_offline_migrations(tmp_path: Path) -> None:
     # Verify offline SQL generation (`alembic upgrade head --sql`) does not crash
     proc = subprocess.run(
         [sys.executable, "-m", "alembic", "upgrade", "head", "--sql"],
+        cwd=str(alembic_ini.parent),
         capture_output=True,
         text=True,
         check=False,

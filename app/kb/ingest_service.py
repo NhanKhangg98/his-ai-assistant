@@ -60,8 +60,9 @@ class IngestSummary:
 
 
 def resolve_git_branch_commit_sha(repo_dir: Path, branch: str = "staging") -> str:
-    """Read the 40-char commit SHA of refs/heads/<branch> (auto-initializing sample repo)."""
-    ensure_sample_git_repo(repo_dir)
+    """Read the 40-char commit SHA of refs/heads/<branch>."""
+    if not (repo_dir / ".git").exists() and "sample_data" in str(repo_dir):
+        ensure_sample_git_repo(repo_dir)
     for ref_candidate in (f"refs/heads/{branch}", branch, "HEAD"):
         proc = subprocess.run(
             ["git", "rev-parse", ref_candidate],

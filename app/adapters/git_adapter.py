@@ -66,7 +66,8 @@ class LocalRepoGitAdapter(GitAdapterProtocol):
     def __init__(self, repo_path: str | Path | None = None) -> None:
         settings = get_settings()
         self.repo_dir = Path(repo_path or settings.his_repo_path).resolve()
-        ensure_sample_git_repo(self.repo_dir)
+        if not (self.repo_dir / ".git").exists():
+            ensure_sample_git_repo(self.repo_dir)
         self._pr_store_path = self.repo_dir / ".git" / "mock_pull_requests.json"
         self._pull_requests: dict[tuple[str, str], PullRequestInfo] = {}
         self._load_persisted_prs()
@@ -121,13 +122,23 @@ class LocalRepoGitAdapter(GitAdapterProtocol):
             raise ProtectedBranchError(
                 f"Bot branches may only be branched from 'develop', rejected from_ref={from_ref!r}"
             )
-        ensure_sample_git_repo(self.repo_dir)
 
-        branch_ref = self.repo_dir / ".git" / "refs" / "heads" / valid_branch
-        if branch_ref.exists():
+        branch_exists = False
+        try:
+            chk = subprocess.run(
+                ["git", "rev-parse", "--verify", f"refs/heads/{valid_branch}"],
+                cwd=str(self.repo_dir),
+                capture_output=True,
+                check=False,
+            )
+            branch_exists = (chk.returncode == 0)
+        except Exception:
+            branch_exists = False
+
+        if branch_exists:
             self._git(["checkout", valid_branch])
         else:
-            self._git(["checkout", "-b", valid_branch, "refs/heads/develop"])
+            self._git(["checkout", "-b", valid_branch, f"refs/heads/{from_ref}"])
 
         return self.get_branch_commit_sha(valid_branch)
 
@@ -139,9 +150,12 @@ class LocalRepoGitAdapter(GitAdapterProtocol):
         rel_paths: list[str] = []
         for rel_path, content in files.items():
             clean_rel = rel_path.lstrip("/\\")
-            if ".." in Path(clean_rel).parts:
-                raise ProtectedBranchError(f"Invalid file path traversal: {rel_path!r}")
-            target_file = self.repo_dir / clean_rel
+            parts = Path(clean_rel).parts
+            if ".." in parts or any(p.startswith(".git") for p in parts):
+                raise ProtectedBranchError(f"Invalid or forbidden file path: {rel_path!r}")
+            target_file = (self.repo_dir / clean_rel).resolve()
+            if not target_file.is_relative_to(self.repo_dir):
+                raise ProtectedBranchError(f"Path traversal detected: {rel_path!r}")
             target_file.parent.mkdir(parents=True, exist_ok=True)
             target_file.write_text(AllBoundaryDLP.sanitize_text(content), encoding="utf-8")
             rel_paths.append(clean_rel)

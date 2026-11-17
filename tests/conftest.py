@@ -127,12 +127,19 @@ def _cleanup_sample_repo_bot_branches(repo_dir: Path) -> None:
         pr_file.unlink()
 
 
+@pytest.fixture(scope="session", autouse=True)
+def setup_sample_git_repo_session() -> None:
+    """Ensure his_staging sample repository is present before any test runs."""
+    repo_dir = (Path(__file__).resolve().parent.parent / "sample_data" / "his_staging").resolve()
+    ensure_sample_git_repo(repo_dir)
+
+
 @pytest.fixture()
 def test_db_url(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Generator[str, None, None]:
     """Configure an isolated database per test and clean up sample repo branches on teardown."""
     db_file = tmp_path / "his_test.db"
     db_url = os.environ.get("TEST_POSTGRES_URL", f"sqlite:///{db_file.as_posix()}")
-    repo_dir = Path("./sample_data/his_staging").resolve()
+    repo_dir = (Path(__file__).resolve().parent.parent / "sample_data" / "his_staging").resolve()
     ensure_sample_git_repo(repo_dir)
     _cleanup_sample_repo_bot_branches(repo_dir)
 
